@@ -75,6 +75,110 @@ async function getPositionLiquidity(id: number): Promise<bigint> {
   }
 }
 
+// --- Uncollected fee helpers ---
+
+const Q128 = 2n ** 128n;
+const POOL_MANAGER = "0x360e68faccca8ca495c1b759fd9eee466db9fb32";
+
+function encodeInt24(value: number): string {
+  if (value >= 0) {
+    return value.toString(16).padStart(64, "0");
+  }
+  const twosComp = BigInt("0x10000000000000000000000000000000000000000000000000000000000000000") + BigInt(value);
+  return twosComp.toString(16);
+}
+
+// StateView.getPositionInfo(bytes32 poolId, address owner, int24 tickLower, int24 tickUpper, bytes32 salt)
+// selector: 0xdacf1d2f
+// Returns: (uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128)
+async function getPositionFeeData(
+  tickLower: number,
+  tickUpper: number,
+  tokenId: number
+): Promise<{ liquidity: bigint; feeGrowthInside0LastX128: bigint; feeGrowthInside1LastX128: bigint } | null> {
+  try {
+    const poolIdParam = POOL_ID.slice(2);
+    const ownerParam = POSITION_MANAGER.slice(2).toLowerCase().padStart(64, "0");
+    const salt = tokenId.toString(16).padStart(64, "0");
+    const calldata =
+      "0xdacf1d2f" +
+      poolIdParam +
+      ownerParam +
+      encodeInt24(tickLower) +
+      encodeInt24(tickUpper) +
+      salt;
+
+    const result = await ethCall(STATE_VIEW, calldata);
+    if (!result || result === "0x" || result.length < 194) return null;
+
+    const liquidity = BigInt("0x" + result.slice(2, 66));
+    const feeGrowthInside0LastX128 = BigInt("0x" + result.slice(66, 130));
+    const feeGrowthInside1LastX128 = BigInt("0x" + result.slice(130, 194));
+    return { liquidity, feeGrowthInside0LastX128, feeGrowthInside1LastX128 };
+  } catch {
+    return null;
+  }
+}
+
+// StateView.getFeeGrowthInside(bytes32 poolId, int24 tickLower, int24 tickUpper)
+// selector: 0x53e9c1fb
+// Returns: (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128)
+async function getFeeGrowthInside(
+  tickLower: number,
+  tickUpper: number
+): Promise<{ feeGrowthInside0X128: bigint; feeGrowthInside1X128: bigint } | null> {
+  try {
+    const poolIdParam = POOL_ID.slice(2);
+    const calldata =
+      "0x53e9c1fb" +
+      poolIdParam +
+      encodeInt24(tickLower) +
+      encodeInt24(tickUpper);
+
+    const result = await ethCall(STATE_VIEW, calldata);
+    if (!result || result === "0x" || result.length < 130) return null;
+
+    const feeGrowthInside0X128 = BigInt("0x" + result.slice(2, 66));
+    const feeGrowthInside1X128 = BigInt("0x" + result.slice(66, 130));
+    return { feeGrowthInside0X128, feeGrowthInside1X128 };
+  } catch {
+    return null;
+  }
+}
+
+// Calculate uncollected fees for a position
+interface UncollectedFees {
+  token0Fees: bigint; // ETH (wei)
+  token1Fees: bigint; // IDOS (wei)
+}
+
+async function getUncollectedFees(
+  tokenId: number,
+  tickLower: number,
+  tickUpper: number
+): Promise<UncollectedFees | null> {
+  const [posData, feeGrowth] = await Promise.all([
+    getPositionFeeData(tickLower, tickUpper, tokenId),
+    getFeeGrowthInside(tickLower, tickUpper),
+  ]);
+
+  if (!posData || !feeGrowth || posData.liquidity === 0n) return null;
+
+  const delta0 =
+    feeGrowth.feeGrowthInside0X128 >= posData.feeGrowthInside0LastX128
+      ? feeGrowth.feeGrowthInside0X128 - posData.feeGrowthInside0LastX128
+      : 0n;
+  const delta1 =
+    feeGrowth.feeGrowthInside1X128 >= posData.feeGrowthInside1LastX128
+      ? feeGrowth.feeGrowthInside1X128 - posData.feeGrowthInside1LastX128
+      : 0n;
+
+  return {
+    token0Fees: (delta0 * posData.liquidity) / Q128,
+    token1Fees: (delta1 * posData.liquidity) / Q128,
+  };
+}
+
 // --- Position discovery ---
 
 // Decode packed PositionInfo (uint256) to extract tickLower and tickUpper
@@ -574,10 +678,23 @@ export async function registerRoutes(
       }
 
       // Dynamic discovery: fetch positions from subgraph + on-chain data
-      const [prices, discoveredPositions] = await Promise.all([
+      const [prices, discoveredPositions, slot0] = await Promise.all([
         fetchPriceData(),
         discoverAllPositions(),
+        getSlot0(),
       ]);
+
+      // Enrich active positions with balance + uncollected fees in batches
+      const activePositions = discoveredPositions.filter((p) => p.isActive);
+      const feeResults = await batchParallel(
+        activePositions.map((p) => () => getUncollectedFees(p.id, p.tickLower, p.tickUpper)),
+        5
+      );
+      const feeMap = new Map<number, UncollectedFees>();
+      activePositions.forEach((p, i) => {
+        const fees = feeResults[i];
+        if (fees) feeMap.set(p.id, fees);
+      });
 
       const positions = discoveredPositions.map((p) => {
         // IDOS USD price at each tick boundary
@@ -595,6 +712,29 @@ export async function registerRoutes(
           prices.currentTick >= p.tickLower &&
           prices.currentTick < p.tickUpper;
 
+        // Compute position balance (ETH + IDOS amounts from liquidity)
+        let ethAmount = 0;
+        let idosAmount = 0;
+        let positionUsd = 0;
+        if (p.isActive && slot0) {
+          const { amount0, amount1 } = getPositionAmounts(
+            p.liquidity,
+            p.tickLower,
+            p.tickUpper,
+            slot0.tick,
+            slot0.sqrtPriceX96
+          );
+          ethAmount = Number(amount0) / 1e18;
+          idosAmount = Number(amount1) / 1e18;
+          positionUsd = ethAmount * prices.ethUsd + idosAmount * prices.idosUsd;
+        }
+
+        // Uncollected fees
+        const fees = feeMap.get(p.id);
+        const feeEth = fees ? Number(fees.token0Fees) / 1e18 : 0;
+        const feeIdos = fees ? Number(fees.token1Fees) / 1e18 : 0;
+        const feeUsd = feeEth * prices.ethUsd + feeIdos * prices.idosUsd;
+
         return {
           id: p.id,
           tokenId: p.id.toString(),
@@ -605,8 +745,23 @@ export async function registerRoutes(
           inRange,
           usdPriceLower: formatUsdPrice(usdPriceLower),
           usdPriceUpper: formatUsdPrice(usdPriceUpper),
+          balance: {
+            ethAmount: Math.round(ethAmount * 10000) / 10000,
+            idosAmount: Math.round(idosAmount * 100) / 100,
+            usdValue: Math.round(positionUsd * 100) / 100,
+          },
+          uncollectedFees: {
+            ethFees: Math.round(feeEth * 10000) / 10000,
+            idosFees: Math.round(feeIdos * 100) / 100,
+            usdValue: Math.round(feeUsd * 100) / 100,
+          },
         };
       });
+
+      // Totals for uncollected fees across all active positions
+      const totalUncollectedEth = positions.reduce((s, p) => s + p.uncollectedFees.ethFees, 0);
+      const totalUncollectedIdos = positions.reduce((s, p) => s + p.uncollectedFees.idosFees, 0);
+      const totalUncollectedUsd = positions.reduce((s, p) => s + p.uncollectedFees.usdValue, 0);
 
       const responseData = {
         positions,
@@ -614,6 +769,11 @@ export async function registerRoutes(
           ethUsd: prices.ethUsd,
           idosUsd: prices.idosUsd,
           currentTick: Math.round(prices.currentTick),
+        },
+        uncollectedFeeTotals: {
+          ethFees: Math.round(totalUncollectedEth * 10000) / 10000,
+          idosFees: Math.round(totalUncollectedIdos * 100) / 100,
+          usdValue: Math.round(totalUncollectedUsd * 100) / 100,
         },
       };
 

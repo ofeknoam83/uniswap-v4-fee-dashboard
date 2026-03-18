@@ -88,6 +88,18 @@ interface FeesResponse {
   prices: { ethUsd: number; idosUsd: number };
 }
 
+interface PositionBalance {
+  ethAmount: number;
+  idosAmount: number;
+  usdValue: number;
+}
+
+interface PositionFees {
+  ethFees: number;
+  idosFees: number;
+  usdValue: number;
+}
+
 interface LivePosition {
   id: number;
   tokenId: string;
@@ -98,6 +110,8 @@ interface LivePosition {
   inRange: boolean;
   usdPriceLower: string;
   usdPriceUpper: string;
+  balance: PositionBalance;
+  uncollectedFees: PositionFees;
 }
 
 interface LivePrices {
@@ -109,6 +123,7 @@ interface LivePrices {
 interface PositionsResponse {
   positions: LivePosition[];
   prices: LivePrices;
+  uncollectedFeeTotals: PositionFees;
 }
 
 function truncateAddress(addr: string) {
@@ -317,12 +332,13 @@ function ActivePositions() {
   const activePositions = livePositions?.filter((p) => p.isActive);
   const closedPositions = livePositions?.filter((p) => !p.isActive);
   const usingLiveData = !!livePositions;
+  const feeTotals = data?.uncollectedFeeTotals;
 
   return (
     <Card className="border border-border/60">
       <CardHeader className="pb-3 pt-4 px-4">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-semibold">Active Positions</CardTitle>
+          <CardTitle className="text-sm font-semibold">Open Positions</CardTitle>
           <div className="flex items-center gap-2">
             {usingLiveData && (
               <Badge variant="outline" className="text-[10px] font-normal text-emerald-600 border-emerald-500/30">
@@ -344,6 +360,16 @@ function ActivePositions() {
             Using static data (subgraph unavailable)
           </p>
         )}
+        {feeTotals && feeTotals.usdValue > 0 && (
+          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Uncollected Fees Total:</span>
+            <span className="tabular-nums font-medium text-primary">${feeTotals.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-border">|</span>
+            <span className="tabular-nums">{feeTotals.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH</span>
+            <span className="text-border">|</span>
+            <span className="tabular-nums">{feeTotals.idosFees.toLocaleString("en-US", { minimumFractionDigits: 2 })} IDOS</span>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="px-0 pb-0">
         <div className="overflow-x-auto">
@@ -351,8 +377,10 @@ function ActivePositions() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">NFT ID</TableHead>
-                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">IDOS Price Range (USD)</TableHead>
-                <TableHead className="text-xs font-medium h-8 px-4 text-center whitespace-nowrap">In Range</TableHead>
+                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">IDOS Price Range</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-center whitespace-nowrap">Status</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Liquidity Balance</TableHead>
+                <TableHead className="text-xs font-medium h-8 px-4 text-right whitespace-nowrap">Uncollected Fees</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -383,7 +411,7 @@ function ActivePositions() {
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
+                      <TableCell className="text-xs text-center py-2.5 whitespace-nowrap">
                         {pos.inRange ? (
                           <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
                             In Range
@@ -394,12 +422,49 @@ function ActivePositions() {
                           </Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-xs text-right py-2.5 whitespace-nowrap">
+                        {pos.balance.usdValue > 0 ? (
+                          <div className="flex flex-col gap-0.5 items-end">
+                            <span className="font-medium tabular-nums text-foreground">
+                              ${pos.balance.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {pos.balance.ethAmount.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH
+                              {pos.balance.idosAmount > 0 && (
+                                <> + {pos.balance.idosAmount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} IDOS</>
+                              )}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-right px-4 py-2.5 whitespace-nowrap">
+                        {pos.uncollectedFees.usdValue > 0 ? (
+                          <div className="flex flex-col gap-0.5 items-end">
+                            <span className="font-medium tabular-nums text-primary">
+                              ${pos.uncollectedFees.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {pos.uncollectedFees.ethFees > 0 && (
+                                <>{pos.uncollectedFees.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH</>
+                              )}
+                              {pos.uncollectedFees.ethFees > 0 && pos.uncollectedFees.idosFees > 0 && " + "}
+                              {pos.uncollectedFees.idosFees > 0 && (
+                                <>{pos.uncollectedFees.idosFees.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} IDOS</>
+                              )}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                   {closedPositions && closedPositions.length > 0 && (
                     <>
                       <TableRow className="hover:bg-transparent">
-                        <TableCell colSpan={3} className="text-xs px-4 py-2 text-muted-foreground font-medium bg-muted/30">
+                        <TableCell colSpan={5} className="text-xs px-4 py-2 text-muted-foreground font-medium bg-muted/30">
                           Closed Positions ({closedPositions.length})
                         </TableCell>
                       </TableRow>
@@ -421,11 +486,13 @@ function ActivePositions() {
                             <span className="mx-1">→</span>
                             <span className="font-mono">{pos.usdPriceUpper}</span>
                           </TableCell>
-                          <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
+                          <TableCell className="text-xs text-center py-2.5 whitespace-nowrap">
                             <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
                               Closed
                             </Badge>
                           </TableCell>
+                          <TableCell className="text-xs text-right py-2.5 text-muted-foreground">—</TableCell>
+                          <TableCell className="text-xs text-right px-4 py-2.5 text-muted-foreground">—</TableCell>
                         </TableRow>
                       ))}
                     </>
@@ -433,7 +500,7 @@ function ActivePositions() {
                 </>
               ) : (
                 <TableRow>
-                  <TableCell colSpan={3} className="text-xs text-center text-muted-foreground py-6">
+                  <TableCell colSpan={5} className="text-xs text-center text-muted-foreground py-6">
                     Loading positions...
                   </TableCell>
                 </TableRow>
@@ -586,6 +653,7 @@ export function Dashboard() {
 
   const livePositions = positionsQuery.data?.positions;
   const livePrices = positionsQuery.data?.prices;
+  const uncollectedFeeTotals = positionsQuery.data?.uncollectedFeeTotals;
   const activeCount = livePositions?.filter((p) => p.isActive).length;
   const totalPositionCount = livePositions?.length;
 
@@ -690,9 +758,9 @@ export function Dashboard() {
               icon={Wallet}
             />
             <KPICard
-              title="Total IDOS Fees"
-              value={formatNumber(totalIdosFees, 2)}
-              subtitle="IDOS tokens"
+              title="Uncollected Fees"
+              value={uncollectedFeeTotals ? `$${formatNumber(uncollectedFeeTotals.usdValue, 2)}` : "..."}
+              subtitle={uncollectedFeeTotals ? `${formatNumber(uncollectedFeeTotals.ethFees, 4)} ETH + ${formatNumber(uncollectedFeeTotals.idosFees, 0)} IDOS` : "Loading"}
               icon={TrendingUp}
             />
             <KPICard
