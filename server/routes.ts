@@ -163,6 +163,7 @@ async function fetchCoinGeckoPrices(): Promise<{
 interface SubgraphFeeEvent {
   id: string;
   timestamp: string;
+  amount: string | number; // liquidity delta (0 = fee collection)
   amount0: string; // ETH (token0)
   amount1: string; // IDOS (token1)
   tickLower: string;
@@ -205,18 +206,15 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
     subgraphFields = await introspectSubgraph();
   }
 
-  // Try known entity names for liquidity modifications
-  const entityName = subgraphFields.includes("modifyLiquiditys")
-    ? "modifyLiquiditys"
-    : subgraphFields.includes("modifyLiquidities")
-      ? "modifyLiquidities"
-      : subgraphFields.includes("positions")
-        ? "positions"
-        : null;
+  const entityName = subgraphFields.includes("modifyLiquidities")
+    ? "modifyLiquidities"
+    : subgraphFields.includes("modifyLiquiditys")
+      ? "modifyLiquiditys"
+      : null;
 
   if (!entityName) {
     console.error(
-      "No known fee entity found in subgraph. Available:",
+      "No modifyLiquidity entity found. Available:",
       subgraphFields.join(", "),
     );
     return [];
@@ -224,50 +222,30 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
 
   console.log(`Using subgraph entity: ${entityName}`);
 
-  // Build query based on entity
-  let query: string;
-  if (entityName === "positions") {
-    // Community/alternative subgraph uses Position entity
-    query = `{
-      ${entityName}(
-        where: {
-          origin: "${WALLET_ORIGIN}"
-        }
-        orderBy: timestamp
-        orderDirection: asc
-        first: 100
-      ) {
-        id
-        timestamp
-        amount0
-        amount1
-        tickLower
-        tickUpper
-        transaction { id }
+  // First: broad query to find ANY events for this origin (no amount filter)
+  // The origin address must be lowercase for subgraph queries
+  const originLower = WALLET_ORIGIN.toLowerCase();
+  const query = `{
+    ${entityName}(
+      where: {
+        origin: "${originLower}"
       }
-    }`;
-  } else {
-    // Official V4 subgraph uses ModifyLiquidity entity
-    query = `{
-      ${entityName}(
-        where: {
-          origin: "${WALLET_ORIGIN}"
-          amount: "0"
-        }
-        orderBy: timestamp
-        orderDirection: asc
-        first: 100
-      ) {
-        id
-        timestamp
-        amount0
-        amount1
-        tickLower
-        tickUpper
-        transaction { id }
-      }
-    }`;
-  }
+      orderBy: timestamp
+      orderDirection: asc
+      first: 100
+    ) {
+      id
+      timestamp
+      amount
+      amount0
+      amount1
+      tickLower
+      tickUpper
+      transaction { id }
+    }
+  }`;
+
+  console.log("Subgraph query:", JSON.stringify(query));
 
   try {
     const res = await fetch(url, {
@@ -278,15 +256,25 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
     });
     if (!res.ok) throw new Error(`Subgraph error: ${res.status}`);
     const json = (await res.json()) as {
-      data?: { modifyLiquiditys: (SubgraphFeeEvent & { pool: { id: string } })[] };
+      data?: Record<string, SubgraphFeeEvent[]>;
       errors?: { message: string }[];
     };
-    if (json.errors?.length) throw new Error(json.errors[0].message);
-    const events = json.data?.modifyLiquiditys || [];
-    console.log(`Subgraph returned ${events.length} fee events`);
-    if (events.length > 0) {
-      console.log(`Pool IDs found:`, [...new Set(events.map(e => e.pool.id))]);
+    if (json.errors?.length) {
+      console.error("Subgraph query error:", json.errors[0].message);
+      throw new Error(json.errors[0].message);
     }
+    const allEvents = json.data?.[entityName] || [];
+    console.log(`Subgraph returned ${allEvents.length} total events for origin ${originLower}`);
+    if (allEvents.length > 0) {
+      console.log("First event:", JSON.stringify(allEvents[0]));
+    }
+
+    // Filter to fee-only collections: amount (liquidity delta) = 0
+    const feeEvents = allEvents.filter(
+      (e) => e.amount === "0" || e.amount === 0,
+    );
+    console.log(`Of those, ${feeEvents.length} are fee collections (amount=0)`);
+    return feeEvents;
     return events;
   } catch (err) {
     console.error("Failed to fetch fee events from subgraph:", err);
