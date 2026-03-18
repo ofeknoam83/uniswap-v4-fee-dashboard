@@ -275,7 +275,6 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
     );
     console.log(`Of those, ${feeEvents.length} are fee collections (amount=0)`);
     return feeEvents;
-    return events;
   } catch (err) {
     console.error("Failed to fetch fee events from subgraph:", err);
     return [];
@@ -368,6 +367,13 @@ export async function registerRoutes(
         fetchFeeEvents(),
         fetchPriceData(),
       ]);
+
+      console.log(`Processing ${events.length} fee events from subgraph`);
+      if (events.length > 0) {
+        console.log("Fee events sample:", events.slice(0, 3).map(e => ({
+          amount0: e.amount0, amount1: e.amount1, amount: e.amount, timestamp: e.timestamp
+        })));
+      }
 
       const feeEvents = events
         .filter((e) => {
