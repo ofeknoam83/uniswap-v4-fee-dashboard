@@ -24,9 +24,12 @@ export const POOL_STATS = {
   walletBalance: 8.336,
 };
 
+// Position IDs are now dynamically discovered from the subgraph.
+// This list is only used as a fallback reference.
 export const POSITION_IDS = [
   146642, 146645, 146646, 146649, 146682,
   146690, 146750, 146806, 146807, 147574,
+  151567, 151568, 151573, 151574,
 ];
 
 export interface FeeEvent {
@@ -139,7 +142,7 @@ export interface PositionDetail {
 }
 
 // Static fallback — live data is fetched from /api/positions
-// Only includes the 5 positions with non-zero on-chain liquidity.
+// Tick ranges verified on-chain via getPoolAndPositionInfo.
 // Closed positions (146645, 146646, 146649, 146682, 146690) have zero liquidity.
 export const POSITION_DETAILS: PositionDetail[] = [
   {
@@ -154,42 +157,82 @@ export const POSITION_DETAILS: PositionDetail[] = [
   },
   {
     id: 146750,
-    tickLower: 34873,
-    tickUpper: 52024,
-    priceLower: "$12.00",
-    priceUpper: "$66.66",
+    tickLower: 104600,
+    tickUpper: 108600,
+    priceLower: "$0.032",
+    priceUpper: "$0.046",
     liquidity: "12962319182993429123989",
     inRange: false,
     isActive: true,
   },
   {
     id: 146806,
-    tickLower: 46141,
-    tickUpper: 70224,
-    priceLower: "$1.94",
-    priceUpper: "$21.61",
+    tickLower: 107400,
+    tickUpper: 111600,
+    priceLower: "$0.026",
+    priceUpper: "$0.037",
     liquidity: "12481437836459845701406",
     inRange: false,
     isActive: true,
   },
   {
     id: 146807,
-    tickLower: 52024,
-    tickUpper: 59841,
-    priceLower: "$5.49",
-    priceUpper: "$12.00",
+    tickLower: 108600,
+    tickUpper: 110000,
+    priceLower: "$0.030",
+    priceUpper: "$0.034",
     liquidity: "64212763316399157751696",
     inRange: false,
     isActive: true,
   },
   {
     id: 147574,
-    tickLower: 52024,
-    tickUpper: 58656,
-    priceLower: "$6.18",
-    priceUpper: "$12.00",
+    tickLower: 108600,
+    tickUpper: 109800,
+    priceLower: "$0.037",
+    priceUpper: "$0.042",
     liquidity: "26082282696297971040275",
     inRange: false,
+    isActive: true,
+  },
+  {
+    id: 151567,
+    tickLower: 116200,
+    tickUpper: 116400,
+    priceLower: "$0.019",
+    priceUpper: "$0.020",
+    liquidity: "57483868946051169312121",
+    inRange: true,
+    isActive: true,
+  },
+  {
+    id: 151568,
+    tickLower: 116200,
+    tickUpper: 116400,
+    priceLower: "$0.019",
+    priceUpper: "$0.020",
+    liquidity: "15364208004481557209978",
+    inRange: true,
+    isActive: true,
+  },
+  {
+    id: 151573,
+    tickLower: 116200,
+    tickUpper: 116400,
+    priceLower: "$0.019",
+    priceUpper: "$0.020",
+    liquidity: "7696802043555582837063",
+    inRange: true,
+    isActive: true,
+  },
+  {
+    id: 151574,
+    tickLower: 116200,
+    tickUpper: 116400,
+    priceLower: "$0.019",
+    priceUpper: "$0.020",
+    liquidity: "127986629002661457068736",
+    inRange: true,
     isActive: true,
   },
 ];

@@ -14,12 +14,13 @@ const POOL_MANAGER = "0x360e68faccca8ca495c1b759fd9eee466db9fb32";
 const POSITION_MANAGER = "0xd88F38F930b7952f2DB2432Cb002E7abbF3dD869";
 const POOL_ID = "0xab92bb13dae336cebff495ca2bc0238be956b0c89aec23342183a092b22f06aa";
 
+// Tick ranges verified on-chain via getPoolAndPositionInfo
 const POSITIONS = [
   { tokenId: 146642n, tickLower: 104800, tickUpper: 115800, liquidity: 8380052099627785901912n },
-  { tokenId: 146750n, tickLower: 34873, tickUpper: 52024, liquidity: 12962319182993429123989n },
-  { tokenId: 146806n, tickLower: 46141, tickUpper: 70224, liquidity: 12481437836459845701406n },
-  { tokenId: 146807n, tickLower: 52024, tickUpper: 59841, liquidity: 64212763316399157751696n },
-  { tokenId: 147574n, tickLower: 52024, tickUpper: 58656, liquidity: 26082282696297971040275n },
+  { tokenId: 146750n, tickLower: 104600, tickUpper: 108600, liquidity: 12962319182993429123989n },
+  { tokenId: 146806n, tickLower: 107400, tickUpper: 111600, liquidity: 12481437836459845701406n },
+  { tokenId: 146807n, tickLower: 108600, tickUpper: 110000, liquidity: 64212763316399157751696n },
+  { tokenId: 147574n, tickLower: 108600, tickUpper: 109800, liquidity: 26082282696297971040275n },
 ];
 
 const Q128 = 1n << 128n;

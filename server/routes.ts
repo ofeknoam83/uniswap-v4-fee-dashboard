@@ -9,22 +9,8 @@ const POOL_ID =
   "0xab92bb13dae336cebff495ca2bc0238be956b0c89aec23342183a092b22f06aa";
 const GRAPH_API_KEY = process.env.GRAPH_API_KEY || "";
 const V4_SUBGRAPH_ID = "G5TsTKNi8yhPSV7kycaE23oWbqv9zzNqR49FoEQjzq1r";
+const WALLET_ADDRESS = "0xcDd08205689bfDE7Aa81609697aAbf88Ce7906b6";
 const WALLET_ORIGIN = "0x8bee39a60e5b40fa76669a6ad74e84aa08445a7c";
-
-// All known position NFT IDs for this wallet
-const KNOWN_POSITION_IDS = [146642, 146750, 146806, 146807, 147574];
-
-// Static position metadata (tick ranges)
-// Pool: token0 = ETH (native), token1 = IDOS
-// price = 1.0001^tick = IDOS/ETH, so IDOS_USD = ETH_USD / 1.0001^tick
-const POSITION_META: Record<number, { tickLower: number; tickUpper: number }> =
-  {
-    146642: { tickLower: 104800, tickUpper: 115800 },
-    146750: { tickLower: 34873, tickUpper: 52024 },
-    146806: { tickLower: 46141, tickUpper: 70224 },
-    146807: { tickLower: 52024, tickUpper: 59841 },
-    147574: { tickLower: 52024, tickUpper: 58656 },
-  };
 
 // --- RPC helpers ---
 
@@ -63,6 +49,124 @@ async function getPositionLiquidity(id: number): Promise<bigint> {
   } catch {
     return 0n;
   }
+}
+
+// --- Position discovery ---
+
+// Decode packed PositionInfo (uint256) to extract tickLower and tickUpper
+// Layout: [poolId (25 bytes / 200 bits)] [tickUpper (3 bytes / 24 bits)] [tickLower (3 bytes / 24 bits)] [hasSubscriber (1 byte / 8 bits)]
+function decodePositionInfo(info: bigint): { tickLower: number; tickUpper: number } {
+  const tickLowerRaw = Number((info >> 8n) & 0xFFFFFFn);
+  const tickUpperRaw = Number((info >> 32n) & 0xFFFFFFn);
+  // Sign-extend from 24-bit
+  const tickLower = tickLowerRaw >= 0x800000 ? tickLowerRaw - 0x1000000 : tickLowerRaw;
+  const tickUpper = tickUpperRaw >= 0x800000 ? tickUpperRaw - 0x1000000 : tickUpperRaw;
+  return { tickLower, tickUpper };
+}
+
+// getPoolAndPositionInfo(uint256) = 0x7ba03aad
+// Returns: (PoolKey memory poolKey, uint256 info)
+async function getPositionInfo(id: number): Promise<{ tickLower: number; tickUpper: number } | null> {
+  try {
+    const result = await ethCall(
+      POSITION_MANAGER,
+      "0x7ba03aad" + padHex(id)
+    );
+    if (!result || result === "0x" || result.length < 386) return null;
+    // The result is ABI-encoded: PoolKey (5 fields × 32 bytes = 160 bytes) + info (32 bytes)
+    // PoolKey: currency0(32) + currency1(32) + fee(32) + tickSpacing(32) + hooks(32) = 160 bytes = 320 hex chars
+    // info is at offset 320 hex chars after 0x prefix
+    const infoHex = result.slice(2 + 320, 2 + 384);
+    const info = BigInt("0x" + infoHex);
+    return decodePositionInfo(info);
+  } catch {
+    return null;
+  }
+}
+
+// Discover all position token IDs owned by the wallet from the subgraph
+interface DiscoveredPosition {
+  id: number;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: bigint;
+  isActive: boolean;
+}
+
+let fullPositionCache: { positions: DiscoveredPosition[]; timestamp: number } | null = null;
+const POSITION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function discoverPositionIds(): Promise<number[]> {
+  const url = GRAPH_API_KEY
+    ? `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/subgraphs/id/${V4_SUBGRAPH_ID}`
+    : `https://gateway.thegraph.com/api/subgraphs/id/${V4_SUBGRAPH_ID}`;
+
+  const ownerLower = WALLET_ADDRESS.toLowerCase();
+
+  try {
+    const query = `{
+      positions(where: { owner: "${ownerLower}" }, first: 1000) {
+        tokenId
+      }
+    }`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Subgraph error: ${res.status}`);
+    const json = (await res.json()) as {
+      data?: { positions: { tokenId: string }[] };
+      errors?: { message: string }[];
+    };
+    if (json.errors?.length) throw new Error(json.errors[0].message);
+    const ids = (json.data?.positions || []).map((p) => parseInt(p.tokenId));
+    console.log(`Discovered ${ids.length} position IDs from subgraph: ${ids.join(", ")}`);
+    return ids;
+  } catch (err) {
+    console.error("Failed to discover positions from subgraph:", err);
+    // Fallback: return known IDs if subgraph fails
+    return [146642, 146645, 146646, 146649, 146682, 146690, 146750, 146806, 146807, 147574];
+  }
+}
+
+// Fully dynamic: discover IDs from subgraph, then fetch tick ranges + liquidity from on-chain
+async function discoverAllPositions(): Promise<DiscoveredPosition[]> {
+  // Return cached if fresh
+  if (fullPositionCache && Date.now() - fullPositionCache.timestamp < POSITION_CACHE_TTL) {
+    return fullPositionCache.positions;
+  }
+
+  const ids = await discoverPositionIds();
+  if (ids.length === 0) return [];
+
+  // Fetch tick ranges and liquidity for all positions in parallel
+  const results = await Promise.all(
+    ids.map(async (id) => {
+      const [posInfo, liquidity] = await Promise.all([
+        getPositionInfo(id),
+        getPositionLiquidity(id),
+      ]);
+      if (!posInfo) return null;
+      return {
+        id,
+        tickLower: posInfo.tickLower,
+        tickUpper: posInfo.tickUpper,
+        liquidity,
+        isActive: liquidity > 0n,
+      } as DiscoveredPosition;
+    })
+  );
+
+  const positions = results.filter((p): p is DiscoveredPosition => p !== null);
+  console.log(`Resolved ${positions.length} positions with on-chain tick data`);
+  for (const p of positions) {
+    console.log(`  #${p.id}: ticks ${p.tickLower} <> ${p.tickUpper}, liquidity=${p.liquidity > 0n ? "YES" : "NO"}`);
+  }
+
+  fullPositionCache = { positions, timestamp: Date.now() };
+  return positions;
 }
 
 // --- Pool state helpers ---
@@ -337,21 +441,17 @@ export async function registerRoutes(
         return res.json(positionCache.data);
       }
 
-      // Fetch prices/tick and position liquidity in parallel
-      const [prices, ...liquidities] = await Promise.all([
+      // Dynamic discovery: fetch positions from subgraph + on-chain data
+      const [prices, discoveredPositions] = await Promise.all([
         fetchPriceData(),
-        ...KNOWN_POSITION_IDS.map((id) => getPositionLiquidity(id)),
+        discoverAllPositions(),
       ]);
 
-      const positions = KNOWN_POSITION_IDS.map((id, i) => {
-        const liquidity = liquidities[i];
-        const meta = POSITION_META[id] || { tickLower: 0, tickUpper: 0 };
-        const isActive = liquidity > 0n;
-
+      const positions = discoveredPositions.map((p) => {
         // IDOS USD price at each tick boundary
         // tickLower → higher IDOS price, tickUpper → lower IDOS price
-        const usdAtTickLower = tickToIdosUsd(meta.tickLower, prices.ethUsd);
-        const usdAtTickUpper = tickToIdosUsd(meta.tickUpper, prices.ethUsd);
+        const usdAtTickLower = tickToIdosUsd(p.tickLower, prices.ethUsd);
+        const usdAtTickUpper = tickToIdosUsd(p.tickUpper, prices.ethUsd);
 
         // Display range as low price to high price
         const usdPriceLower = Math.min(usdAtTickLower, usdAtTickUpper);
@@ -359,17 +459,17 @@ export async function registerRoutes(
 
         // In range: current tick falls within position's tick range
         const inRange =
-          isActive &&
-          prices.currentTick >= meta.tickLower &&
-          prices.currentTick < meta.tickUpper;
+          p.isActive &&
+          prices.currentTick >= p.tickLower &&
+          prices.currentTick < p.tickUpper;
 
         return {
-          id,
-          tokenId: id.toString(),
-          tickLower: meta.tickLower,
-          tickUpper: meta.tickUpper,
-          liquidity: liquidity.toString(),
-          isActive,
+          id: p.id,
+          tokenId: p.id.toString(),
+          tickLower: p.tickLower,
+          tickUpper: p.tickUpper,
+          liquidity: p.liquidity.toString(),
+          isActive: p.isActive,
           inRange,
           usdPriceLower: formatUsdPrice(usdPriceLower),
           usdPriceUpper: formatUsdPrice(usdPriceUpper),
