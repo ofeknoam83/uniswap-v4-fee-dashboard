@@ -587,6 +587,7 @@ export function Dashboard() {
   const livePositions = positionsQuery.data?.positions;
   const livePrices = positionsQuery.data?.prices;
   const activeCount = livePositions?.filter((p) => p.isActive).length;
+  const totalPositionCount = livePositions?.length;
 
   // Fee data from API only — no static fallback
   const feeEvents = feesQuery.data?.events ?? [];
@@ -697,7 +698,7 @@ export function Dashboard() {
             <KPICard
               title="Positions"
               value={activeCount !== undefined ? String(activeCount) : String(POSITION_IDS.length)}
-              subtitle={activeCount !== undefined ? `of ${POSITION_IDS.length} active` : "NFTs"}
+              subtitle={activeCount !== undefined ? `of ${totalPositionCount} active` : "NFTs"}
               icon={Layers}
             />
             <KPICard

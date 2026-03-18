@@ -128,7 +128,7 @@ async function discoverPositionIds(): Promise<number[]> {
   } catch (err) {
     console.error("Failed to discover positions from subgraph:", err);
     // Fallback: return known IDs if subgraph fails
-    return [146642, 146645, 146646, 146649, 146682, 146690, 146750, 146806, 146807, 147574];
+    return [146642, 146645, 146646, 146649, 146682, 146690, 146750, 146806, 146807, 147574, 151567, 151568, 151573, 151574, 151575];
   }
 }
 

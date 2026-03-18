@@ -29,7 +29,7 @@ export const POOL_STATS = {
 export const POSITION_IDS = [
   146642, 146645, 146646, 146649, 146682,
   146690, 146750, 146806, 146807, 147574,
-  151567, 151568, 151573, 151574,
+  151567, 151568, 151573, 151574, 151575,
 ];
 
 export interface FeeEvent {
@@ -232,6 +232,16 @@ export const POSITION_DETAILS: PositionDetail[] = [
     priceLower: "$0.019",
     priceUpper: "$0.020",
     liquidity: "127986629002661457068736",
+    inRange: true,
+    isActive: true,
+  },
+  {
+    id: 151575,
+    tickLower: 116200,
+    tickUpper: 117600,
+    priceLower: "$0.017",
+    priceUpper: "$0.020",
+    liquidity: "3988982637573765521249",
     inRange: true,
     isActive: true,
   },
