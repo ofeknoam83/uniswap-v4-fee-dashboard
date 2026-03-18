@@ -11,6 +11,7 @@ const GRAPH_API_KEY = process.env.GRAPH_API_KEY || "";
 const V4_SUBGRAPH_ID = "G5TsTKNi8yhPSV7kycaE23oWbqv9zzNqR49FoEQjzq1r";
 const WALLET_ADDRESS = "0xcDd08205689bfDE7Aa81609697aAbf88Ce7906b6";
 const WALLET_ORIGIN = "0x8bee39a60e5b40fa76669a6ad74e84aa08445a7c";
+const IDOS_TOKEN = "0x68731d6F14B827bBCfFbEBb62b19Daa18de1d79c";
 
 // --- RPC helpers ---
 
@@ -171,26 +172,117 @@ async function discoverAllPositions(): Promise<DiscoveredPosition[]> {
 
 // --- Pool state helpers ---
 
+interface Slot0Data {
+  sqrtPriceX96: bigint;
+  tick: number;
+}
+
 // getSlot0(bytes32) = 0xc815641c — returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)
-async function getCurrentTick(): Promise<number | null> {
+async function getSlot0(): Promise<Slot0Data | null> {
   try {
-    // Pool ID without 0x prefix, already 32 bytes
     const poolIdParam = POOL_ID.slice(2);
     const result = await ethCall(STATE_VIEW, "0xc815641c" + poolIdParam);
     if (!result || result === "0x" || result.length < 130) return null;
-    // Result layout: uint160 sqrtPriceX96 (32 bytes) | int24 tick (32 bytes) | ...
-    // tick is at offset 32 bytes (64 hex chars) after 0x prefix
+    // sqrtPriceX96 is in the first 32 bytes
+    const sqrtPriceHex = result.slice(2, 2 + 64);
+    const sqrtPriceX96 = BigInt("0x" + sqrtPriceHex);
+    // tick is at offset 32 bytes (64 hex chars)
     const tickHex = result.slice(2 + 64, 2 + 128);
     const tickBigInt = BigInt("0x" + tickHex);
-    // int24 is signed — check if negative (top bit of int256 set)
+    let tick: number;
     if (tickBigInt > BigInt("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) {
-      return Number(tickBigInt - BigInt("0x10000000000000000000000000000000000000000000000000000000000000000"));
+      tick = Number(tickBigInt - BigInt("0x10000000000000000000000000000000000000000000000000000000000000000"));
+    } else {
+      tick = Number(tickBigInt);
     }
-    return Number(tickBigInt);
+    return { sqrtPriceX96, tick };
   } catch (err) {
-    console.error("Failed to get current tick from StateView:", err);
+    console.error("Failed to get slot0 from StateView:", err);
     return null;
   }
+}
+
+async function getCurrentTick(): Promise<number | null> {
+  const slot0 = await getSlot0();
+  return slot0?.tick ?? null;
+}
+
+// --- Wallet balance helpers ---
+
+async function getEthBalance(address: string): Promise<bigint> {
+  try {
+    const res = await fetch(RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "eth_getBalance",
+        params: [address, "latest"],
+        id: 1,
+      }),
+    });
+    const json = (await res.json()) as { result?: string; error?: { message: string } };
+    if (json.error) throw new Error(json.error.message);
+    return BigInt(json.result || "0x0");
+  } catch {
+    return 0n;
+  }
+}
+
+// ERC-20 balanceOf(address) = 0x70a08231
+async function getTokenBalance(token: string, address: string): Promise<bigint> {
+  try {
+    const paddedAddr = address.slice(2).toLowerCase().padStart(64, "0");
+    const result = await ethCall(token, "0x70a08231" + paddedAddr);
+    if (!result || result === "0x") return 0n;
+    return BigInt(result);
+  } catch {
+    return 0n;
+  }
+}
+
+// --- Uniswap V3/V4 liquidity math ---
+// Compute token0 (ETH) and token1 (IDOS) amounts from liquidity, tick range, and current sqrtPriceX96
+
+const Q96 = 1n << 96n;
+
+function tickToSqrtPriceX96(tick: number): bigint {
+  // sqrt(1.0001^tick) * 2^96
+  const sqrtPrice = Math.sqrt(Math.pow(1.0001, tick));
+  // Convert to Q96 — use BigInt for precision
+  return BigInt(Math.round(sqrtPrice * Number(Q96)));
+}
+
+function getPositionAmounts(
+  liquidity: bigint,
+  tickLower: number,
+  tickUpper: number,
+  currentTick: number,
+  sqrtPriceX96: bigint
+): { amount0: bigint; amount1: bigint } {
+  const sqrtLower = tickToSqrtPriceX96(tickLower);
+  const sqrtUpper = tickToSqrtPriceX96(tickUpper);
+
+  let amount0 = 0n;
+  let amount1 = 0n;
+
+  if (currentTick < tickLower) {
+    // Current price below range — all in token0 (ETH)
+    // amount0 = L * (1/sqrtLower - 1/sqrtUpper) = L * (sqrtUpper - sqrtLower) / (sqrtLower * sqrtUpper) * 2^96
+    amount0 = (liquidity * Q96 * (sqrtUpper - sqrtLower)) / (sqrtLower * sqrtUpper);
+  } else if (currentTick >= tickUpper) {
+    // Current price above range — all in token1 (IDOS)
+    // amount1 = L * (sqrtUpper - sqrtLower) / 2^96
+    amount1 = (liquidity * (sqrtUpper - sqrtLower)) / Q96;
+  } else {
+    // In range — split between both tokens
+    // amount0 = L * (1/sqrtPrice - 1/sqrtUpper)
+    amount0 = (liquidity * Q96 * (sqrtUpper - sqrtPriceX96)) / (sqrtPriceX96 * sqrtUpper);
+    // amount1 = L * (sqrtPrice - sqrtLower)
+    amount1 = (liquidity * (sqrtPriceX96 - sqrtLower)) / Q96;
+  }
+
+  return { amount0: amount0 < 0n ? 0n : amount0, amount1: amount1 < 0n ? 0n : amount1 };
 }
 
 // --- Price helpers ---
@@ -600,6 +692,93 @@ export async function registerRoutes(
       return res
         .status(500)
         .json({ error: err.message || "Failed to fetch fees" });
+    }
+  });
+
+  // --- Wallet balance endpoint ---
+  let walletCache: { data: any; timestamp: number } | null = null;
+
+  app.get("/api/wallet", async (_req, res) => {
+    try {
+      if (walletCache && Date.now() - walletCache.timestamp < CACHE_TTL) {
+        return res.json(walletCache.data);
+      }
+
+      // Fetch everything in parallel: balances, prices, positions, pool state
+      const [ethBalanceRaw, idosBalanceRaw, prices, positions, slot0] = await Promise.all([
+        getEthBalance(WALLET_ADDRESS),
+        getTokenBalance(IDOS_TOKEN, WALLET_ADDRESS),
+        fetchPriceData(),
+        discoverAllPositions(),
+        getSlot0(),
+      ]);
+
+      // Convert raw balances to human-readable (18 decimals for both)
+      const ethBalance = Number(ethBalanceRaw) / 1e18;
+      const idosBalance = Number(idosBalanceRaw) / 1e18;
+
+      // Compute position token amounts
+      let totalPositionEth = 0;
+      let totalPositionIdos = 0;
+      const positionBreakdown: { id: number; ethAmount: number; idosAmount: number; usdValue: number }[] = [];
+
+      if (slot0) {
+        for (const pos of positions) {
+          if (!pos.isActive) continue;
+          const { amount0, amount1 } = getPositionAmounts(
+            pos.liquidity,
+            pos.tickLower,
+            pos.tickUpper,
+            slot0.tick,
+            slot0.sqrtPriceX96
+          );
+          const ethAmt = Number(amount0) / 1e18;
+          const idosAmt = Number(amount1) / 1e18;
+          totalPositionEth += ethAmt;
+          totalPositionIdos += idosAmt;
+          positionBreakdown.push({
+            id: pos.id,
+            ethAmount: Math.round(ethAmt * 10000) / 10000,
+            idosAmount: Math.round(idosAmt * 100) / 100,
+            usdValue: Math.round((ethAmt * prices.ethUsd + idosAmt * prices.idosUsd) * 100) / 100,
+          });
+        }
+      }
+
+      const walletUsd = ethBalance * prices.ethUsd + idosBalance * prices.idosUsd;
+      const positionsUsd = totalPositionEth * prices.ethUsd + totalPositionIdos * prices.idosUsd;
+      const totalUsd = walletUsd + positionsUsd;
+
+      const responseData = {
+        wallet: {
+          ethBalance: Math.round(ethBalance * 10000) / 10000,
+          idosBalance: Math.round(idosBalance * 100) / 100,
+          usdValue: Math.round(walletUsd * 100) / 100,
+        },
+        positions: {
+          ethTotal: Math.round(totalPositionEth * 10000) / 10000,
+          idosTotal: Math.round(totalPositionIdos * 100) / 100,
+          usdValue: Math.round(positionsUsd * 100) / 100,
+          breakdown: positionBreakdown,
+        },
+        total: {
+          ethTotal: Math.round((ethBalance + totalPositionEth) * 10000) / 10000,
+          idosTotal: Math.round((idosBalance + totalPositionIdos) * 100) / 100,
+          usdValue: Math.round(totalUsd * 100) / 100,
+        },
+        prices: {
+          ethUsd: prices.ethUsd,
+          idosUsd: prices.idosUsd,
+        },
+      };
+
+      walletCache = { data: responseData, timestamp: Date.now() };
+      return res.json(responseData);
+    } catch (err: any) {
+      console.error("Failed to fetch wallet data:", err);
+      return res
+        .status(500)
+        .json({ error: err.message || "Failed to fetch wallet data" });
     }
   });
 

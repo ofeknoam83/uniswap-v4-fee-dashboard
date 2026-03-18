@@ -36,6 +36,8 @@ import {
   Info,
   Copy,
   Check,
+  PiggyBank,
+  CircleDollarSign,
 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -58,6 +60,26 @@ import {
   type FeeEvent,
   type PositionDetail,
 } from "@/lib/data";
+
+interface WalletBalanceData {
+  ethBalance: number;
+  idosBalance: number;
+  usdValue: number;
+}
+
+interface PositionBalanceData {
+  ethTotal: number;
+  idosTotal: number;
+  usdValue: number;
+  breakdown: { id: number; ethAmount: number; idosAmount: number; usdValue: number }[];
+}
+
+interface WalletResponse {
+  wallet: WalletBalanceData;
+  positions: PositionBalanceData;
+  total: { ethTotal: number; idosTotal: number; usdValue: number };
+  prices: { ethUsd: number; idosUsd: number };
+}
 
 interface FeesResponse {
   events: FeeEvent[];
@@ -424,6 +446,112 @@ function ActivePositions() {
   );
 }
 
+// Wallet Balance Section
+function WalletBalance() {
+  const { data, isLoading } = useQuery<WalletResponse>({
+    queryKey: ["/api/wallet"],
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    retry: 2,
+    placeholderData: (prev) => prev,
+  });
+
+  if (isLoading && !data) {
+    return (
+      <Card className="border border-border/60">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="w-3 h-3 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin" />
+            Loading wallet balances...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const { wallet, positions, total } = data;
+
+  return (
+    <Card className="border border-border/60">
+      <CardHeader className="pb-3 pt-4 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+            <CircleDollarSign className="w-3.5 h-3.5 text-primary" />
+            Portfolio Overview
+          </CardTitle>
+          <Badge variant="outline" className="text-[10px] font-normal text-emerald-600 border-emerald-500/30">
+            Live
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="px-4 pb-4">
+        {/* Total value hero */}
+        <div className="mb-4 pb-4 border-b border-border/60">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Total Value</p>
+          <p className="text-2xl font-semibold tabular-nums mt-0.5 text-foreground">
+            ${total.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+            <span className="tabular-nums">{total.ethTotal.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ETH</span>
+            <span className="text-border">|</span>
+            <span className="tabular-nums">{total.idosTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} IDOS</span>
+          </div>
+        </div>
+
+        {/* Two-column breakdown */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Wallet balance */}
+          <div className="p-3 rounded-md bg-muted/30 border border-border/40">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Wallet className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-xs font-medium text-foreground">Wallet Balance</p>
+            </div>
+            <p className="text-lg font-semibold tabular-nums text-foreground">
+              ${wallet.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <div className="mt-1.5 space-y-0.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">ETH</span>
+                <span className="tabular-nums font-medium">{wallet.ethBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">IDOS</span>
+                <span className="tabular-nums font-medium">{wallet.idosBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Positions balance */}
+          <div className="p-3 rounded-md bg-muted/30 border border-border/40">
+            <div className="flex items-center gap-1.5 mb-2">
+              <PiggyBank className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-xs font-medium text-foreground">In Positions</p>
+              <Badge variant="secondary" className="text-[10px] font-normal ml-auto">
+                {positions.breakdown.length} active
+              </Badge>
+            </div>
+            <p className="text-lg font-semibold tabular-nums text-foreground">
+              ${positions.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <div className="mt-1.5 space-y-0.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">ETH</span>
+                <span className="tabular-nums font-medium">{positions.ethTotal.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">IDOS</span>
+                <span className="tabular-nums font-medium">{positions.idosTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Fee split pie chart data (static fallback)
 const PIE_DATA_STATIC = [
   { name: "Mar 5", value: 2384, fill: "hsl(168, 65%, 38%)" },
@@ -578,6 +706,11 @@ export function Dashboard() {
               subtitle={dailyFees.length > 0 ? `Over ${dailyFees.length} day${dailyFees.length > 1 ? 's' : ''}` : ""}
               icon={Activity}
             />
+          </div>
+
+          {/* Wallet Balance */}
+          <div className="mb-5">
+            <WalletBalance />
           </div>
 
           {/* Charts row */}
