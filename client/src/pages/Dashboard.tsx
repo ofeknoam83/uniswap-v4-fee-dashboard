@@ -60,22 +60,14 @@ import {
   type PositionDetail,
 } from "@/lib/data";
 
-interface SubgraphPosition {
+interface LivePosition {
   id: number;
   tokenId: string;
   tickLower: number;
   tickUpper: number;
   priceLower: string;
   priceUpper: string;
-  liquidity: string;
-  liquidityRaw: string;
   isActive: boolean;
-  inRange: boolean;
-  currentTick: number;
-  pool: {
-    token0Symbol: string;
-    token1Symbol: string;
-  };
 }
 
 function truncateAddress(addr: string) {
@@ -265,7 +257,7 @@ function PositionsList() {
 
 // Active Positions Table (fetches live data from subgraph, falls back to static)
 function ActivePositions() {
-  const { data, isLoading, error } = useQuery<{ positions: SubgraphPosition[] }>({
+  const { data, isLoading, error } = useQuery<{ positions: LivePosition[] }>({
     queryKey: ["/api/positions"],
     staleTime: 5 * 60 * 1000, // refresh every 5 minutes
     refetchInterval: 5 * 60 * 1000,
@@ -311,7 +303,6 @@ function ActivePositions() {
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">NFT ID</TableHead>
                 <TableHead className="text-xs font-medium h-8 whitespace-nowrap">Price Range</TableHead>
-                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Liquidity</TableHead>
                 <TableHead className="text-xs font-medium h-8 px-4 text-center whitespace-nowrap">Status</TableHead>
               </TableRow>
             </TableHeader>
@@ -343,26 +334,17 @@ function ActivePositions() {
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
-                        {pos.liquidity}
-                      </TableCell>
                       <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
-                        {pos.inRange ? (
-                          <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
-                            In Range
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 text-[10px] font-medium hover:bg-amber-500/15">
-                            Out of Range
-                          </Badge>
-                        )}
+                        <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                          Active
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   ))}
                   {closedPositions && closedPositions.length > 0 && (
                     <>
                       <TableRow className="hover:bg-transparent">
-                        <TableCell colSpan={4} className="text-xs px-4 py-2 text-muted-foreground font-medium bg-muted/30">
+                        <TableCell colSpan={3} className="text-xs px-4 py-2 text-muted-foreground font-medium bg-muted/30">
                           Closed Positions ({closedPositions.length})
                         </TableCell>
                       </TableRow>
@@ -383,9 +365,6 @@ function ActivePositions() {
                             <span className="font-mono">{pos.priceLower}</span>
                             <span className="mx-1">→</span>
                             <span className="font-mono">{pos.priceUpper}</span>
-                          </TableCell>
-                          <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
-                            0
                           </TableCell>
                           <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
                             <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
@@ -423,19 +402,10 @@ function ActivePositions() {
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
-                      {pos.liquidity}
-                    </TableCell>
                     <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
-                      {pos.inRange ? (
-                        <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
-                          In Range
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
-                          Out of Range
-                        </Badge>
-                      )}
+                      <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
+                        Loading...
+                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))
