@@ -9,24 +9,18 @@ const POOL_ID =
   "0xab92bb13dae336cebff495ca2bc0238be956b0c89aec23342183a092b22f06aa";
 
 // All known position NFT IDs for this wallet
-const KNOWN_POSITION_IDS = [
-  146642, 146645, 146646, 146649, 146682, 146690, 146750, 146806, 146807,
-  147574,
-];
+const KNOWN_POSITION_IDS = [146642, 146750, 146806, 146807, 147574];
 
 // Static position metadata (tick ranges)
+// Pool: token0 = ETH (native), token1 = IDOS
+// price = 1.0001^tick = IDOS/ETH, so IDOS_USD = ETH_USD / 1.0001^tick
 const POSITION_META: Record<number, { tickLower: number; tickUpper: number }> =
   {
-    146642: { tickLower: -92100, tickUpper: 0 },
-    146645: { tickLower: -69080, tickUpper: -23030 },
-    146646: { tickLower: -55260, tickUpper: -36840 },
-    146649: { tickLower: -50970, tickUpper: -41140 },
-    146682: { tickLower: -48450, tickUpper: -43550 },
-    146690: { tickLower: -47300, tickUpper: -44800 },
-    146750: { tickLower: -46500, tickUpper: -45500 },
-    146806: { tickLower: -52900, tickUpper: -46200 },
-    146807: { tickLower: -57500, tickUpper: -46100 },
-    147574: { tickLower: -46200, tickUpper: -45800 },
+    146642: { tickLower: 104800, tickUpper: 115800 },
+    146750: { tickLower: 104600, tickUpper: 108600 },
+    146806: { tickLower: 107400, tickUpper: 111600 },
+    146807: { tickLower: 108600, tickUpper: 110000 },
+    147574: { tickLower: 108600, tickUpper: 109800 },
   };
 
 // --- RPC helpers ---
@@ -94,12 +88,12 @@ async function getCurrentTick(): Promise<number | null> {
 
 // --- Price helpers ---
 
-// tick price = 1.0001^tick = token1/token0
-// In this pool: token0 = IDOS, token1 = WETH (based on address ordering)
-// So price = WETH/IDOS = ETH per 1 IDOS
+// Pool: token0 = ETH (native addr 0), token1 = IDOS
+// 1.0001^tick = IDOS per ETH
+// IDOS USD price at tick = ETH_USD / 1.0001^tick
 
-function tickToRawPrice(tick: number): number {
-  return Math.pow(1.0001, tick);
+function tickToIdosUsd(tick: number, ethUsd: number): number {
+  return ethUsd / Math.pow(1.0001, tick);
 }
 
 interface PriceData {
@@ -143,10 +137,10 @@ async function fetchCoinGeckoPrices(): Promise<{
     const ethUsd = data.ethereum?.usd || 2000;
     const idosUsd = data.idos?.usd || 0.02;
 
-    // Compute fallback tick from price ratio (used if StateView is unreachable)
-    const ethPerIdos = idosUsd / ethUsd;
+    // Compute fallback tick: tick = ln(IDOS_per_ETH) / ln(1.0001)
+    const idosPerEth = ethUsd / idosUsd;
     const fallbackTick = Math.round(
-      Math.log(ethPerIdos) / Math.log(1.0001)
+      Math.log(idosPerEth) / Math.log(1.0001)
     );
 
     return { ethUsd, idosUsd, fallbackTick };
@@ -155,7 +149,7 @@ async function fetchCoinGeckoPrices(): Promise<{
     const ethUsd = 2000;
     const idosUsd = 0.02;
     const fallbackTick = Math.round(
-      Math.log(idosUsd / ethUsd) / Math.log(1.0001)
+      Math.log(ethUsd / idosUsd) / Math.log(1.0001)
     );
     return { ethUsd, idosUsd, fallbackTick };
   }
@@ -189,13 +183,14 @@ export async function registerRoutes(
         const meta = POSITION_META[id] || { tickLower: 0, tickUpper: 0 };
         const isActive = liquidity > 0n;
 
-        // Price range: raw price = ETH per IDOS at each tick
-        const rawPriceLower = tickToRawPrice(meta.tickLower);
-        const rawPriceUpper = tickToRawPrice(meta.tickUpper);
+        // IDOS USD price at each tick boundary
+        // tickLower → higher IDOS price, tickUpper → lower IDOS price
+        const usdAtTickLower = tickToIdosUsd(meta.tickLower, prices.ethUsd);
+        const usdAtTickUpper = tickToIdosUsd(meta.tickUpper, prices.ethUsd);
 
-        // USD range: multiply ETH-per-IDOS by ETH USD price = IDOS USD price at boundary
-        const usdPriceLower = rawPriceLower * prices.ethUsd;
-        const usdPriceUpper = rawPriceUpper * prices.ethUsd;
+        // Display range as low price to high price
+        const usdPriceLower = Math.min(usdAtTickLower, usdAtTickUpper);
+        const usdPriceUpper = Math.max(usdAtTickLower, usdAtTickUpper);
 
         // In range: current tick falls within position's tick range
         const inRange =
