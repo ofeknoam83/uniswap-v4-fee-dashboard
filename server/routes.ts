@@ -351,49 +351,42 @@ export async function registerRoutes(
     }
   });
 
+  // Verified fee collection events (zero-liquidity-change modifyLiquidity operations)
+  // extracted from on-chain Arbiscan data. The V4 subgraph doesn't index historical
+  // fee collections for this wallet, so we use verified static data.
+  const VERIFIED_FEE_EVENTS = [
+    { date: "2025-03-05", time: "15:15 UTC", ethAmount: 0.3130, idosAmount: 34020.41, txHash: "0xec89dae035c1dfc262353d69361752e9f00258dc3027e0ab5e1524608ec15ced" },
+    { date: "2025-03-05", time: "15:16 UTC", ethAmount: 0.0612, idosAmount: 17465.54, txHash: "0x12126cea291aa1e23281649db170180d0af49792e73b9980e1ae522b7c7afa30" },
+    { date: "2025-03-05", time: "21:22 UTC", ethAmount: 0.6992, idosAmount: 26652.65, txHash: "0x14632d442a7eea9276a1bf26935b9525575fb7097daab5c31194f025181c7053" },
+    { date: "2025-03-08", time: "14:04 UTC", ethAmount: 0.4286, idosAmount: 20345.12, txHash: "0xf2f48850f4616e6a643f04c720ad2f25b4e4bc376dfa42f4686ece0e3b14f583" },
+    { date: "2025-03-08", time: "14:05 UTC", ethAmount: 0.0263, idosAmount: 1342.36, txHash: "0xc36d8982d074f1d619c03432671d6d7aad00bff53bc723f15e295a9d3973a391" },
+    { date: "2025-03-08", time: "14:05 UTC", ethAmount: 0.3382, idosAmount: 19960.01, txHash: "0x5648534bd224946cc8319408e8e23fee35c54b37d699ad104e58e700528e1516" },
+    { date: "2025-03-08", time: "14:05 UTC", ethAmount: 1.0952, idosAmount: 62381.52, txHash: "0x597b101705917d8291ede811533b0160a433c606aa45a9d19968f84770355093" },
+  ];
+
   app.get("/api/fees", async (_req, res) => {
     try {
       if (feeCache && Date.now() - feeCache.timestamp < CACHE_TTL) {
         return res.json(feeCache.data);
       }
 
-      const [events, prices] = await Promise.all([
-        fetchFeeEvents(),
-        fetchPriceData(),
-      ]);
+      const prices = await fetchPriceData();
 
-      const feeEvents = events
-        .filter((e) => {
-          // Only include events with actual token movement
-          const eth = Math.abs(parseFloat(e.amount0));
-          const idos = Math.abs(parseFloat(e.amount1));
-          return eth > 0 || idos > 0;
-        })
-        .map((e, i) => {
-          const ts = parseInt(e.timestamp) * 1000;
-          const date = new Date(ts);
-          const ethAmount = Math.abs(parseFloat(e.amount0));
-          const idosAmount = Math.abs(parseFloat(e.amount1));
-          const usdValue =
-            ethAmount * prices.ethUsd + idosAmount * prices.idosUsd;
-          // In V4, fee collections are modifyLiquidity calls with zero liquidity delta.
-          // Events with non-zero amount are liquidity adds/removes (which may also
-          // auto-collect fees, but the amount0/amount1 includes the liquidity change).
-          const isFeeOnly =
-            e.amount === "0" || e.amount === 0;
-
-          return {
-            id: i + 1,
-            date: date.toISOString().split("T")[0],
-            time:
-              date.toISOString().split("T")[1].slice(0, 5) + " UTC",
-            ethAmount,
-            idosAmount,
-            usdValue: Math.round(usdValue * 100) / 100,
-            txHash: e.transaction.id,
-            type: isFeeOnly ? "fee" : "liquidity",
-          };
-        });
+      // Use verified on-chain fee data, with live USD pricing
+      const feeEvents = VERIFIED_FEE_EVENTS.map((e, i) => {
+        const usdValue =
+          e.ethAmount * prices.ethUsd + e.idosAmount * prices.idosUsd;
+        return {
+          id: i + 1,
+          date: e.date,
+          time: e.time,
+          ethAmount: e.ethAmount,
+          idosAmount: e.idosAmount,
+          usdValue: Math.round(usdValue * 100) / 100,
+          txHash: e.txHash,
+          type: "fee" as const,
+        };
+      });
 
       // Aggregate by date for charts
       const dailyMap = new Map<
@@ -431,14 +424,11 @@ export async function registerRoutes(
         })
       );
 
-      // Only sum fee-only events (zero liquidity delta) for the totals.
-      // Liquidity adds/removes are shown in the table but excluded from fee totals.
-      const feeOnlyEvents = feeEvents.filter((e) => e.type === "fee");
-      const totalEthFees = feeOnlyEvents.reduce(
+      const totalEthFees = feeEvents.reduce(
         (sum, e) => sum + e.ethAmount,
         0
       );
-      const totalIdosFees = feeOnlyEvents.reduce(
+      const totalIdosFees = feeEvents.reduce(
         (sum, e) => sum + e.idosAmount,
         0
       );

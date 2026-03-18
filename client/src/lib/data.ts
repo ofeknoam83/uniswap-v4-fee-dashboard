@@ -48,7 +48,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 0.3130,
     idosAmount: 34020.41,
     usdValue: 695,
-    txHash: "0xec89dae05ced",
+    txHash: "0xec89dae035c1dfc262353d69361752e9f00258dc3027e0ab5e1524608ec15ced",
   },
   {
     id: 2,
@@ -57,7 +57,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 0.0612,
     idosAmount: 17465.54,
     usdValue: 136,
-    txHash: "0x12126ceafa30",
+    txHash: "0x12126cea291aa1e23281649db170180d0af49792e73b9980e1ae522b7c7afa30",
   },
   {
     id: 3,
@@ -66,7 +66,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 0.6992,
     idosAmount: 26652.65,
     usdValue: 1553,
-    txHash: "0x14632d44c705",
+    txHash: "0x14632d442a7eea9276a1bf26935b9525575fb7097daab5c31194f025181c7053",
   },
   {
     id: 4,
@@ -75,7 +75,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 0.4286,
     idosAmount: 20345.12,
     usdValue: 953,
-    txHash: "0xf2f48850f583",
+    txHash: "0xf2f48850f4616e6a643f04c720ad2f25b4e4bc376dfa42f4686ece0e3b14f583",
   },
   {
     id: 5,
@@ -84,7 +84,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 0.0263,
     idosAmount: 1342.36,
     usdValue: 59,
-    txHash: "0xc36d8982a391",
+    txHash: "0xc36d8982d074f1d619c03432671d6d7aad00bff53bc723f15e295a9d3973a391",
   },
   {
     id: 6,
@@ -93,7 +93,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 0.3382,
     idosAmount: 19960.01,
     usdValue: 752,
-    txHash: "0x5648534b1516",
+    txHash: "0x5648534bd224946cc8319408e8e23fee35c54b37d699ad104e58e700528e1516",
   },
   {
     id: 7,
@@ -102,7 +102,7 @@ export const FEE_EVENTS: FeeEvent[] = [
     ethAmount: 1.0952,
     idosAmount: 62381.52,
     usdValue: 2435,
-    txHash: "0x597b10175093",
+    txHash: "0x597b101705917d8291ede811533b0160a433c606aa45a9d19968f84770355093",
   },
 ];
 
