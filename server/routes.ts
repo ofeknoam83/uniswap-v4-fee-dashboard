@@ -49,16 +49,15 @@ function padHex(id: number): string {
   return id.toString(16).padStart(64, "0");
 }
 
-async function checkPositionActive(id: number): Promise<boolean> {
+async function getPositionLiquidity(id: number): Promise<bigint> {
   try {
-    // ownerOf(uint256) = 0x6352211e — reverts if NFT is burned
-    const result = await ethCall(POSITION_MANAGER, "0x6352211e" + padHex(id));
-    const owner = "0x" + result.slice(26).toLowerCase();
-    // Position exists if owner is not zero address
-    return owner !== "0x" + "0".repeat(40);
+    // getPositionLiquidity(uint256) = 0x1efeed33 — returns uint128 liquidity
+    const result = await ethCall(POSITION_MANAGER, "0x1efeed33" + padHex(id));
+    if (!result || result === "0x") return 0n;
+    return BigInt(result);
   } catch {
-    // ownerOf reverts for burned/non-existent NFTs
-    return false;
+    // Reverts for non-existent positions
+    return 0n;
   }
 }
 
@@ -77,10 +76,10 @@ export async function registerRoutes(
         return res.json(positionCache.data);
       }
 
-      // Check each position via RPC
+      // Check each position's liquidity via RPC
       const results = await Promise.all(
         KNOWN_POSITION_IDS.map(async (id) => {
-          const isActive = await checkPositionActive(id);
+          const liquidity = await getPositionLiquidity(id);
           const meta = POSITION_META[id] || { tickLower: 0, tickUpper: 0 };
           return {
             id,
@@ -89,7 +88,8 @@ export async function registerRoutes(
             tickUpper: meta.tickUpper,
             priceLower: tickToPrice(meta.tickLower),
             priceUpper: tickToPrice(meta.tickUpper),
-            isActive,
+            liquidity: liquidity.toString(),
+            isActive: liquidity > 0n,
           };
         })
       );

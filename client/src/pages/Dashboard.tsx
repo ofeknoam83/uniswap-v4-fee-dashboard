@@ -67,6 +67,7 @@ interface LivePosition {
   tickUpper: number;
   priceLower: string;
   priceUpper: string;
+  liquidity: string;
   isActive: boolean;
 }
 
