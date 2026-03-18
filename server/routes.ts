@@ -15,23 +15,46 @@ const IDOS_TOKEN = "0x68731d6F14B827bBCfFbEBb62b19Daa18de1d79c";
 
 // --- RPC helpers ---
 
-async function ethCall(to: string, data: string): Promise<string> {
-  const res = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "eth_call",
-      params: [{ to, data }, "latest"],
-      id: 1,
-    }),
-  });
-  const json = (await res.json()) as {
-    result?: string;
-    error?: { message: string };
-  };
-  if (json.error) throw new Error(json.error.message);
-  return json.result || "0x";
+async function ethCall(to: string, data: string, retries = 2): Promise<string> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(RPC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_call",
+          params: [{ to, data }, "latest"],
+          id: 1,
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const json = (await res.json()) as {
+        result?: string;
+        error?: { message: string };
+      };
+      if (json.error) throw new Error(json.error.message);
+      return json.result || "0x";
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return "0x";
+}
+
+// Run async functions in batches to avoid overwhelming the RPC
+async function batchParallel<T>(fns: (() => Promise<T>)[], batchSize = 5): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < fns.length; i += batchSize) {
+    const batch = fns.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map((fn) => fn()));
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 function padHex(id: number): string {
@@ -95,6 +118,7 @@ interface DiscoveredPosition {
 }
 
 let fullPositionCache: { positions: DiscoveredPosition[]; timestamp: number } | null = null;
+let inflightDiscovery: Promise<DiscoveredPosition[]> | null = null;
 const POSITION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function discoverPositionIds(): Promise<number[]> {
@@ -133,41 +157,57 @@ async function discoverPositionIds(): Promise<number[]> {
 }
 
 // Fully dynamic: discover IDs from subgraph, then fetch tick ranges + liquidity from on-chain
+// Uses inflight deduplication so concurrent callers share a single RPC burst.
 async function discoverAllPositions(): Promise<DiscoveredPosition[]> {
   // Return cached if fresh
   if (fullPositionCache && Date.now() - fullPositionCache.timestamp < POSITION_CACHE_TTL) {
     return fullPositionCache.positions;
   }
 
-  const ids = await discoverPositionIds();
-  if (ids.length === 0) return [];
-
-  // Fetch tick ranges and liquidity for all positions in parallel
-  const results = await Promise.all(
-    ids.map(async (id) => {
-      const [posInfo, liquidity] = await Promise.all([
-        getPositionInfo(id),
-        getPositionLiquidity(id),
-      ]);
-      if (!posInfo) return null;
-      return {
-        id,
-        tickLower: posInfo.tickLower,
-        tickUpper: posInfo.tickUpper,
-        liquidity,
-        isActive: liquidity > 0n,
-      } as DiscoveredPosition;
-    })
-  );
-
-  const positions = results.filter((p): p is DiscoveredPosition => p !== null);
-  console.log(`Resolved ${positions.length} positions with on-chain tick data`);
-  for (const p of positions) {
-    console.log(`  #${p.id}: ticks ${p.tickLower} <> ${p.tickUpper}, liquidity=${p.liquidity > 0n ? "YES" : "NO"}`);
+  // Deduplicate concurrent calls — if a discovery is already inflight, wait for it
+  if (inflightDiscovery) {
+    return inflightDiscovery;
   }
 
-  fullPositionCache = { positions, timestamp: Date.now() };
-  return positions;
+  inflightDiscovery = (async () => {
+    try {
+      const ids = await discoverPositionIds();
+      if (ids.length === 0) return [];
+
+      // Fetch tick ranges and liquidity in controlled batches (5 at a time)
+      // to avoid overwhelming the public Arbitrum RPC
+      const results = await batchParallel(
+        ids.map((id) => async () => {
+          const [posInfo, liquidity] = await Promise.all([
+            getPositionInfo(id),
+            getPositionLiquidity(id),
+          ]);
+          if (!posInfo) return null;
+          return {
+            id,
+            tickLower: posInfo.tickLower,
+            tickUpper: posInfo.tickUpper,
+            liquidity,
+            isActive: liquidity > 0n,
+          } as DiscoveredPosition;
+        }),
+        5
+      );
+
+      const positions = (results as (DiscoveredPosition | null)[]).filter((p): p is DiscoveredPosition => p !== null);
+      console.log(`Resolved ${positions.length} positions with on-chain tick data`);
+      for (const p of positions) {
+        console.log(`  #${p.id}: ticks ${p.tickLower} <> ${p.tickUpper}, liquidity=${p.liquidity > 0n ? "YES" : "NO"}`);
+      }
+
+      fullPositionCache = { positions, timestamp: Date.now() };
+      return positions;
+    } finally {
+      inflightDiscovery = null;
+    }
+  })();
+
+  return inflightDiscovery;
 }
 
 // --- Pool state helpers ---
