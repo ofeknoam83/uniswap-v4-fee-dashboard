@@ -2,7 +2,7 @@ services:
   - type: web
     name: uniswap-v4-fee-dashboard
     runtime: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/index.cjs
     envVars:
       - key: NODE_ENV
