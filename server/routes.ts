@@ -151,7 +151,8 @@ async function fetchCoinGeckoPrices(): Promise<{
 
     return { ethUsd, fallbackTick };
   } catch {
-    return { ethUsd: 2000, fallbackTick: -45500 };
+    // Fallback: IDOS ~$0.03, ETH ~$2000 → ethPerIdos = 0.000015 → tick ≈ -111080
+    return { ethUsd: 2000, fallbackTick: -111080 };
   }
 }
 
