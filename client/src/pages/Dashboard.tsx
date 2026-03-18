@@ -60,6 +60,13 @@ import {
   type PositionDetail,
 } from "@/lib/data";
 
+interface FeesResponse {
+  events: FeeEvent[];
+  dailyFees: { date: string; ethFees: number; idosFees: number; usdValue: number; events: number }[];
+  totals: { ethFees: number; idosFees: number; usdFees: number };
+  prices: { ethUsd: number; idosUsd: number };
+}
+
 interface LivePosition {
   id: number;
   tokenId: string;
@@ -411,10 +418,19 @@ function ActivePositions() {
   );
 }
 
-// Fee split pie chart data
-const PIE_DATA = [
+// Fee split pie chart data (static fallback)
+const PIE_DATA_STATIC = [
   { name: "Mar 5", value: 2384, fill: "hsl(168, 65%, 38%)" },
   { name: "Mar 8", value: 4199, fill: "hsl(168, 55%, 55%)" },
+];
+
+const PIE_COLORS = [
+  "hsl(168, 65%, 38%)",
+  "hsl(168, 55%, 55%)",
+  "hsl(168, 45%, 65%)",
+  "hsl(168, 35%, 75%)",
+  "hsl(200, 55%, 50%)",
+  "hsl(220, 55%, 55%)",
 ];
 
 export function Dashboard() {
@@ -425,9 +441,28 @@ export function Dashboard() {
     retry: 1,
   });
 
+  const feesQuery = useQuery<FeesResponse>({
+    queryKey: ["/api/fees"],
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    retry: 1,
+  });
+
   const livePositions = positionsQuery.data?.positions;
   const livePrices = positionsQuery.data?.prices;
   const activeCount = livePositions?.filter((p) => p.isActive).length;
+
+  // Use live fee data when available, fall back to static
+  const feeEvents = feesQuery.data?.events ?? FEE_EVENTS;
+  const dailyFees = feesQuery.data?.dailyFees ?? DAILY_FEES;
+  const totalEthFees = feesQuery.data?.totals.ethFees ?? TOTAL_ETH_FEES;
+  const totalIdosFees = feesQuery.data?.totals.idosFees ?? TOTAL_IDOS_FEES;
+  const totalUsdFees = feesQuery.data?.totals.usdFees ?? TOTAL_USD_FEES;
+  const pieData = dailyFees.map((d, i) => ({
+    name: d.date,
+    value: d.usdValue,
+    fill: PIE_COLORS[i % PIE_COLORS.length],
+  }));
 
   return (
     <TooltipProvider>
@@ -513,13 +548,13 @@ export function Dashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
             <KPICard
               title="Total ETH Fees"
-              value={`${formatNumber(TOTAL_ETH_FEES, 4)} ETH`}
-              subtitle={`~${formatUSD(TOTAL_USD_FEES)}`}
+              value={`${formatNumber(totalEthFees, 4)} ETH`}
+              subtitle={`~${formatUSD(totalUsdFees)}`}
               icon={Wallet}
             />
             <KPICard
               title="Total IDOS Fees"
-              value={formatNumber(TOTAL_IDOS_FEES, 2)}
+              value={formatNumber(totalIdosFees, 2)}
               subtitle="IDOS tokens"
               icon={TrendingUp}
             />
@@ -531,8 +566,8 @@ export function Dashboard() {
             />
             <KPICard
               title="Collection Events"
-              value={String(FEE_EVENTS.length)}
-              subtitle="Over 2 days"
+              value={String(feeEvents.length)}
+              subtitle={dailyFees.length > 0 ? `Over ${dailyFees.length} day${dailyFees.length > 1 ? 's' : ''}` : ""}
               icon={Activity}
             />
           </div>
@@ -546,7 +581,7 @@ export function Dashboard() {
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={DAILY_FEES} barCategoryGap="30%">
+                  <BarChart data={dailyFees} barCategoryGap="30%">
                     <CartesianGrid
                       strokeDasharray="3 3"
                       stroke="hsl(var(--border))"
@@ -566,8 +601,8 @@ export function Dashboard() {
                     />
                     <RechartsTooltip content={<BarTooltip />} />
                     <Bar dataKey="usdValue" name="USD Value" radius={[4, 4, 0, 0]} maxBarSize={60}>
-                      {DAILY_FEES.map((_, i) => (
-                        <Cell key={i} fill={i === 0 ? "hsl(168, 65%, 38%)" : "hsl(168, 55%, 55%)"} />
+                      {dailyFees.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -584,7 +619,7 @@ export function Dashboard() {
                 <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
-                      data={PIE_DATA}
+                      data={pieData}
                       cx="50%"
                       cy="50%"
                       innerRadius={40}
@@ -593,7 +628,7 @@ export function Dashboard() {
                       dataKey="value"
                       stroke="none"
                     >
-                      {PIE_DATA.map((entry, i) => (
+                      {pieData.map((entry, i) => (
                         <Cell key={i} fill={entry.fill} />
                       ))}
                     </Pie>
@@ -609,7 +644,7 @@ export function Dashboard() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex gap-4 mt-1">
-                  {PIE_DATA.map((d) => (
+                  {pieData.map((d) => (
                     <div key={d.name} className="flex items-center gap-1.5 text-xs">
                       <span
                         className="w-2 h-2 rounded-full"
@@ -626,7 +661,7 @@ export function Dashboard() {
 
           {/* Events table */}
           <div className="mb-5">
-            <FeeEventsTable events={FEE_EVENTS} />
+            <FeeEventsTable events={feeEvents} />
           </div>
 
           {/* Active Positions */}

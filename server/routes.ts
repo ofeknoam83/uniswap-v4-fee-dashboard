@@ -7,6 +7,9 @@ const POSITION_MANAGER = "0xd88f38f930b7952f2db2432cb002e7abbf3dd869";
 const STATE_VIEW = "0x76fd297e2d437cd7f76d50f01afe6160f86e9990";
 const POOL_ID =
   "0xab92bb13dae336cebff495ca2bc0238be956b0c89aec23342183a092b22f06aa";
+const GRAPH_API_KEY = "fce0a3729b3cb70677cd39b00c586b2a";
+const V4_SUBGRAPH_ID = "G5TsTKNi8yhPSV7kycaE23oWbqv9zzNqR49FoEQjzq1r";
+const WALLET_ORIGIN = "0x8bee39a60e5b40fa76669a6ad74e84aa08445a7c";
 
 // All known position NFT IDs for this wallet
 const KNOWN_POSITION_IDS = [146642, 146750, 146806, 146807, 147574];
@@ -155,9 +158,68 @@ async function fetchCoinGeckoPrices(): Promise<{
   }
 }
 
+// --- Subgraph helpers ---
+
+interface SubgraphFeeEvent {
+  id: string;
+  timestamp: string;
+  amount0: string; // ETH (token0)
+  amount1: string; // IDOS (token1)
+  tickLower: string;
+  tickUpper: string;
+  transaction: { id: string };
+}
+
+async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
+  const url = `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/subgraphs/id/${V4_SUBGRAPH_ID}`;
+
+  // Fee collections are modifyLiquidity calls with amount=0 (zero liquidity delta)
+  // Filter by origin (the EOA that initiates the tx) and pool
+  const query = `{
+    modifyLiquiditys(
+      where: {
+        origin: "${WALLET_ORIGIN}"
+        pool: "${POOL_ID}"
+        amount: "0"
+      }
+      orderBy: timestamp
+      orderDirection: asc
+      first: 100
+    ) {
+      id
+      timestamp
+      amount0
+      amount1
+      tickLower
+      tickUpper
+      transaction { id }
+    }
+  }`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`Subgraph error: ${res.status}`);
+    const json = (await res.json()) as {
+      data?: { modifyLiquiditys: SubgraphFeeEvent[] };
+      errors?: { message: string }[];
+    };
+    if (json.errors?.length) throw new Error(json.errors[0].message);
+    return json.data?.modifyLiquiditys || [];
+  } catch (err) {
+    console.error("Failed to fetch fee events from subgraph:", err);
+    return [];
+  }
+}
+
 // --- Caching ---
 
 let positionCache: { data: any; timestamp: number } | null = null;
+let feeCache: { data: any; timestamp: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
 
 // --- Routes ---
@@ -227,6 +289,115 @@ export async function registerRoutes(
       return res
         .status(500)
         .json({ error: err.message || "Failed to fetch positions" });
+    }
+  });
+
+  app.get("/api/fees", async (_req, res) => {
+    try {
+      if (feeCache && Date.now() - feeCache.timestamp < CACHE_TTL) {
+        return res.json(feeCache.data);
+      }
+
+      const [events, prices] = await Promise.all([
+        fetchFeeEvents(),
+        fetchPriceData(),
+      ]);
+
+      const feeEvents = events
+        .filter((e) => {
+          // Only include events where fees were actually collected
+          const eth = Math.abs(parseFloat(e.amount0));
+          const idos = Math.abs(parseFloat(e.amount1));
+          return eth > 0 || idos > 0;
+        })
+        .map((e, i) => {
+          const ts = parseInt(e.timestamp) * 1000;
+          const date = new Date(ts);
+          const ethAmount = Math.abs(parseFloat(e.amount0));
+          const idosAmount = Math.abs(parseFloat(e.amount1));
+          const usdValue =
+            ethAmount * prices.ethUsd + idosAmount * prices.idosUsd;
+
+          return {
+            id: i + 1,
+            date: date.toISOString().split("T")[0],
+            time:
+              date.toISOString().split("T")[1].slice(0, 5) + " UTC",
+            ethAmount,
+            idosAmount,
+            usdValue: Math.round(usdValue * 100) / 100,
+            txHash: e.transaction.id,
+          };
+        });
+
+      // Aggregate by date for charts
+      const dailyMap = new Map<
+        string,
+        {
+          ethFees: number;
+          idosFees: number;
+          usdValue: number;
+          events: number;
+        }
+      >();
+      for (const e of feeEvents) {
+        const d = new Date(e.date);
+        const label =
+          d.toLocaleString("en-US", { month: "short" }) + " " + d.getDate();
+        const existing = dailyMap.get(label) || {
+          ethFees: 0,
+          idosFees: 0,
+          usdValue: 0,
+          events: 0,
+        };
+        existing.ethFees += e.ethAmount;
+        existing.idosFees += e.idosAmount;
+        existing.usdValue += e.usdValue;
+        existing.events += 1;
+        dailyMap.set(label, existing);
+      }
+      const dailyFees = Array.from(dailyMap.entries()).map(
+        ([date, data]) => ({
+          date,
+          ethFees: Math.round(data.ethFees * 10000) / 10000,
+          idosFees: Math.round(data.idosFees * 100) / 100,
+          usdValue: Math.round(data.usdValue * 100) / 100,
+          events: data.events,
+        })
+      );
+
+      const totalEthFees = feeEvents.reduce(
+        (sum, e) => sum + e.ethAmount,
+        0
+      );
+      const totalIdosFees = feeEvents.reduce(
+        (sum, e) => sum + e.idosAmount,
+        0
+      );
+      const totalUsdFees =
+        totalEthFees * prices.ethUsd + totalIdosFees * prices.idosUsd;
+
+      const responseData = {
+        events: feeEvents,
+        dailyFees,
+        totals: {
+          ethFees: Math.round(totalEthFees * 10000) / 10000,
+          idosFees: Math.round(totalIdosFees * 100) / 100,
+          usdFees: Math.round(totalUsdFees * 100) / 100,
+        },
+        prices: {
+          ethUsd: prices.ethUsd,
+          idosUsd: prices.idosUsd,
+        },
+      };
+
+      feeCache = { data: responseData, timestamp: Date.now() };
+      return res.json(responseData);
+    } catch (err: any) {
+      console.error("Failed to fetch fees:", err);
+      return res
+        .status(500)
+        .json({ error: err.message || "Failed to fetch fees" });
     }
   });
 
