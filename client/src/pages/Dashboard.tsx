@@ -65,10 +65,22 @@ interface LivePosition {
   tokenId: string;
   tickLower: number;
   tickUpper: number;
-  priceLower: string;
-  priceUpper: string;
   liquidity: string;
   isActive: boolean;
+  inRange: boolean;
+  usdPriceLower: string;
+  usdPriceUpper: string;
+}
+
+interface LivePrices {
+  ethUsd: number;
+  idosUsd: number;
+  currentTick: number;
+}
+
+interface PositionsResponse {
+  positions: LivePosition[];
+  prices: LivePrices;
 }
 
 function truncateAddress(addr: string) {
@@ -256,11 +268,12 @@ function PositionsList() {
   );
 }
 
-// Active Positions Table (fetches live data from subgraph, falls back to static)
+// Active Positions Table (uses shared query from Dashboard)
 function ActivePositions() {
-  const { data, isLoading, error } = useQuery<{ positions: LivePosition[] }>({
+  // Re-use the same query key — React Query deduplicates
+  const { data, isLoading, error } = useQuery<PositionsResponse>({
     queryKey: ["/api/positions"],
-    staleTime: 5 * 60 * 1000, // refresh every 5 minutes
+    staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
     retry: 1,
   });
@@ -303,8 +316,8 @@ function ActivePositions() {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">NFT ID</TableHead>
-                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">Price Range</TableHead>
-                <TableHead className="text-xs font-medium h-8 px-4 text-center whitespace-nowrap">Status</TableHead>
+                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">IDOS Price Range (USD)</TableHead>
+                <TableHead className="text-xs font-medium h-8 px-4 text-center whitespace-nowrap">In Range</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -325,10 +338,10 @@ function ActivePositions() {
                       </TableCell>
                       <TableCell className="text-xs py-2.5 whitespace-nowrap">
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-muted-foreground">
-                            <span className="font-mono">{pos.priceLower}</span>
-                            <span className="mx-1">→</span>
-                            <span className="font-mono">{pos.priceUpper}</span>
+                          <span className="text-foreground font-medium">
+                            <span className="font-mono">{pos.usdPriceLower}</span>
+                            <span className="mx-1 text-muted-foreground">→</span>
+                            <span className="font-mono">{pos.usdPriceUpper}</span>
                           </span>
                           <span className="text-[10px] text-muted-foreground/60">
                             Ticks: {pos.tickLower} to {pos.tickUpper}
@@ -336,9 +349,15 @@ function ActivePositions() {
                         </div>
                       </TableCell>
                       <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
-                        <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
-                          Active
-                        </Badge>
+                        {pos.inRange ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                            In Range
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 text-[10px] font-medium hover:bg-amber-500/15">
+                            Out of Range
+                          </Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -363,9 +382,9 @@ function ActivePositions() {
                             </a>
                           </TableCell>
                           <TableCell className="text-xs py-2.5 whitespace-nowrap text-muted-foreground">
-                            <span className="font-mono">{pos.priceLower}</span>
+                            <span className="font-mono">{pos.usdPriceLower}</span>
                             <span className="mx-1">→</span>
-                            <span className="font-mono">{pos.priceUpper}</span>
+                            <span className="font-mono">{pos.usdPriceUpper}</span>
                           </TableCell>
                           <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
                             <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
@@ -378,38 +397,11 @@ function ActivePositions() {
                   )}
                 </>
               ) : (
-                POSITION_DETAILS.map((pos) => (
-                  <TableRow key={pos.id} className="group">
-                    <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
-                      <a
-                        href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
-                      >
-                        #{pos.id}
-                        <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
-                      </a>
-                    </TableCell>
-                    <TableCell className="text-xs py-2.5 whitespace-nowrap">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-muted-foreground">
-                          <span className="font-mono">{pos.priceLower}</span>
-                          <span className="mx-1">→</span>
-                          <span className="font-mono">{pos.priceUpper}</span>
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/60">
-                          Ticks: {pos.tickLower} to {pos.tickUpper}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
-                      <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
-                        Loading...
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))
+                <TableRow>
+                  <TableCell colSpan={3} className="text-xs text-center text-muted-foreground py-6">
+                    Loading positions...
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -426,6 +418,17 @@ const PIE_DATA = [
 ];
 
 export function Dashboard() {
+  const positionsQuery = useQuery<PositionsResponse>({
+    queryKey: ["/api/positions"],
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const livePositions = positionsQuery.data?.positions;
+  const livePrices = positionsQuery.data?.prices;
+  const activeCount = livePositions?.filter((p) => p.isActive).length;
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background">
@@ -486,11 +489,20 @@ export function Dashboard() {
               <span>{FEE_TIER}</span>
             </div>
             <span className="text-border">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">TVL:</span>
-              <span>{formatUSD(POOL_STATS.tvl)}</span>
-            </div>
-            <span className="text-border">|</span>
+            {livePrices && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-foreground">ETH:</span>
+                  <span>{formatUSD(livePrices.ethUsd)}</span>
+                </div>
+                <span className="text-border">|</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-foreground">IDOS:</span>
+                  <span>{formatUSD(livePrices.idosUsd)}</span>
+                </div>
+                <span className="text-border">|</span>
+              </>
+            )}
             <div className="flex items-center gap-1.5">
               <span className="font-medium text-foreground">Txns:</span>
               <span>{POOL_STATS.txCount.toLocaleString()}</span>
@@ -513,8 +525,8 @@ export function Dashboard() {
             />
             <KPICard
               title="Positions"
-              value={String(POSITION_IDS.length)}
-              subtitle="Active NFTs"
+              value={activeCount !== undefined ? String(activeCount) : String(POSITION_IDS.length)}
+              subtitle={activeCount !== undefined ? `of ${POSITION_IDS.length} active` : "NFTs"}
               icon={Layers}
             />
             <KPICard
