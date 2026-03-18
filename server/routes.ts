@@ -121,41 +121,85 @@ async function fetchPriceData(): Promise<PriceData> {
   return { ethUsd, idosUsd, currentTick: tick };
 }
 
+// Price cache to avoid hammering APIs on every request
+let priceCache: { ethUsd: number; idosUsd: number; fallbackTick: number; timestamp: number } | null = null;
+const PRICE_CACHE_TTL = 60 * 1000; // 1 minute
+
 async function fetchCoinGeckoPrices(): Promise<{
   ethUsd: number;
   idosUsd: number;
   fallbackTick: number;
 }> {
+  // Return cached prices if fresh
+  if (priceCache && Date.now() - priceCache.timestamp < PRICE_CACHE_TTL) {
+    return priceCache;
+  }
+
+  let ethUsd = 0;
+  let idosUsd = 0;
+
+  // Try CoinGecko first
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,idos&vs_currencies=usd",
       { signal: AbortSignal.timeout(5000) }
     );
-    if (!res.ok) throw new Error("CoinGecko API error");
-    const data = (await res.json()) as {
-      ethereum?: { usd: number };
-      idos?: { usd: number };
-    };
-
-    const ethUsd = data.ethereum?.usd || 2000;
-    const idosUsd = data.idos?.usd || 0.02;
-
-    // Compute fallback tick: tick = ln(IDOS_per_ETH) / ln(1.0001)
-    const idosPerEth = ethUsd / idosUsd;
-    const fallbackTick = Math.round(
-      Math.log(idosPerEth) / Math.log(1.0001)
-    );
-
-    return { ethUsd, idosUsd, fallbackTick };
+    if (res.ok) {
+      const data = (await res.json()) as {
+        ethereum?: { usd: number };
+        idos?: { usd: number };
+      };
+      ethUsd = data.ethereum?.usd || 0;
+      idosUsd = data.idos?.usd || 0;
+    }
   } catch {
-    // Fallback: IDOS ~$0.02, ETH ~$2000
-    const ethUsd = 2000;
-    const idosUsd = 0.02;
-    const fallbackTick = Math.round(
-      Math.log(ethUsd / idosUsd) / Math.log(1.0001)
-    );
-    return { ethUsd, idosUsd, fallbackTick };
+    // CoinGecko failed, try alternatives
   }
+
+  // If CoinGecko didn't return ETH price, try CoinPaprika (no rate limit)
+  if (!ethUsd) {
+    try {
+      const res = await fetch(
+        "https://api.coinpaprika.com/v1/tickers/eth-ethereum",
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { quotes?: { USD?: { price?: number } } };
+        ethUsd = data.quotes?.USD?.price || 0;
+      }
+    } catch {
+      // CoinPaprika also failed
+    }
+  }
+
+  // If still no IDOS price, try CoinPaprika for IDOS
+  if (!idosUsd) {
+    try {
+      const res = await fetch(
+        "https://api.coinpaprika.com/v1/tickers/idos-idos",
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { quotes?: { USD?: { price?: number } } };
+        idosUsd = data.quotes?.USD?.price || 0;
+      }
+    } catch {
+      // CoinPaprika also failed for IDOS
+    }
+  }
+
+  // Final fallback only if all APIs failed
+  if (!ethUsd) ethUsd = 2000;
+  if (!idosUsd) idosUsd = 0.02;
+
+  const idosPerEth = ethUsd / idosUsd;
+  const fallbackTick = Math.round(
+    Math.log(idosPerEth) / Math.log(1.0001)
+  );
+
+  const result = { ethUsd, idosUsd, fallbackTick };
+  priceCache = { ...result, timestamp: Date.now() };
+  return result;
 }
 
 // --- Subgraph helpers ---
