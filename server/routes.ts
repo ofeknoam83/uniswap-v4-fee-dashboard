@@ -173,13 +173,13 @@ interface SubgraphFeeEvent {
 async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
   const url = `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/subgraphs/id/${V4_SUBGRAPH_ID}`;
 
+  // First, find the pool entity ID by querying with origin filter only
+  // The subgraph pool ID may differ from the on-chain bytes32 poolId
   // Fee collections are modifyLiquidity calls with amount=0 (zero liquidity delta)
-  // Filter by origin (the EOA that initiates the tx) and pool
   const query = `{
     modifyLiquiditys(
       where: {
         origin: "${WALLET_ORIGIN}"
-        pool: "${POOL_ID}"
         amount: "0"
       }
       orderBy: timestamp
@@ -192,6 +192,7 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
       amount1
       tickLower
       tickUpper
+      pool { id }
       transaction { id }
     }
   }`;
@@ -205,11 +206,16 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
     });
     if (!res.ok) throw new Error(`Subgraph error: ${res.status}`);
     const json = (await res.json()) as {
-      data?: { modifyLiquiditys: SubgraphFeeEvent[] };
+      data?: { modifyLiquiditys: (SubgraphFeeEvent & { pool: { id: string } })[] };
       errors?: { message: string }[];
     };
     if (json.errors?.length) throw new Error(json.errors[0].message);
-    return json.data?.modifyLiquiditys || [];
+    const events = json.data?.modifyLiquiditys || [];
+    console.log(`Subgraph returned ${events.length} fee events`);
+    if (events.length > 0) {
+      console.log(`Pool IDs found:`, [...new Set(events.map(e => e.pool.id))]);
+    }
+    return events;
   } catch (err) {
     console.error("Failed to fetch fee events from subgraph:", err);
     return [];

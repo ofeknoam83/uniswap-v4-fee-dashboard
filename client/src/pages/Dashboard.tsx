@@ -282,7 +282,8 @@ function ActivePositions() {
     queryKey: ["/api/positions"],
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
-    retry: 1,
+    retry: 2,
+    placeholderData: (prev) => prev,
   });
 
   const livePositions = data?.positions;
@@ -438,26 +439,28 @@ export function Dashboard() {
     queryKey: ["/api/positions"],
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
-    retry: 1,
+    retry: 2,
+    placeholderData: (prev) => prev,
   });
 
   const feesQuery = useQuery<FeesResponse>({
     queryKey: ["/api/fees"],
     staleTime: 5 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
-    retry: 1,
+    retry: 2,
+    placeholderData: (prev) => prev,
   });
 
   const livePositions = positionsQuery.data?.positions;
   const livePrices = positionsQuery.data?.prices;
   const activeCount = livePositions?.filter((p) => p.isActive).length;
 
-  // Use live fee data when available, fall back to static
-  const feeEvents = feesQuery.data?.events ?? FEE_EVENTS;
-  const dailyFees = feesQuery.data?.dailyFees ?? DAILY_FEES;
-  const totalEthFees = feesQuery.data?.totals.ethFees ?? TOTAL_ETH_FEES;
-  const totalIdosFees = feesQuery.data?.totals.idosFees ?? TOTAL_IDOS_FEES;
-  const totalUsdFees = feesQuery.data?.totals.usdFees ?? TOTAL_USD_FEES;
+  // Fee data from API only — no static fallback
+  const feeEvents = feesQuery.data?.events ?? [];
+  const dailyFees = feesQuery.data?.dailyFees ?? [];
+  const totalEthFees = feesQuery.data?.totals.ethFees ?? 0;
+  const totalIdosFees = feesQuery.data?.totals.idosFees ?? 0;
+  const totalUsdFees = feesQuery.data?.totals.usdFees ?? 0;
   const pieData = dailyFees.map((d, i) => ({
     name: d.date,
     value: d.usdValue,
