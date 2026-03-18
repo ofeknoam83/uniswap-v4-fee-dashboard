@@ -38,6 +38,7 @@ import {
   Check,
 } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import {
   WALLET_ADDRESS,
@@ -54,9 +55,28 @@ import {
   METHODOLOGY_NOTE,
   DEPLOYER,
   POSITION_DETAILS,
+  POSITION_MANAGER,
   type FeeEvent,
   type PositionDetail,
 } from "@/lib/data";
+
+interface SubgraphPosition {
+  id: number;
+  tokenId: string;
+  tickLower: number;
+  tickUpper: number;
+  priceLower: string;
+  priceUpper: string;
+  liquidity: string;
+  liquidityRaw: string;
+  isActive: boolean;
+  inRange: boolean;
+  currentTick: number;
+  pool: {
+    token0Symbol: string;
+    token1Symbol: string;
+  };
+}
 
 function truncateAddress(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -243,17 +263,46 @@ function PositionsList() {
   );
 }
 
-// Active Positions Table
+// Active Positions Table (fetches live data from subgraph, falls back to static)
 function ActivePositions() {
+  const { data, isLoading, error } = useQuery<{ positions: SubgraphPosition[] }>({
+    queryKey: ["/api/positions"],
+    staleTime: 5 * 60 * 1000, // refresh every 5 minutes
+    refetchInterval: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const livePositions = data?.positions;
+  const activePositions = livePositions?.filter((p) => p.isActive);
+  const closedPositions = livePositions?.filter((p) => !p.isActive);
+  const usingLiveData = !!livePositions;
+
   return (
     <Card className="border border-border/60">
       <CardHeader className="pb-3 pt-4 px-4">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm font-semibold">Active Positions</CardTitle>
-          <Badge variant="secondary" className="text-xs font-normal">
-            {POSITION_DETAILS.length} positions
-          </Badge>
+          <div className="flex items-center gap-2">
+            {usingLiveData && (
+              <Badge variant="outline" className="text-[10px] font-normal text-emerald-600 border-emerald-500/30">
+                Live
+              </Badge>
+            )}
+            {isLoading && (
+              <Badge variant="outline" className="text-[10px] font-normal">
+                Loading...
+              </Badge>
+            )}
+            <Badge variant="secondary" className="text-xs font-normal">
+              {usingLiveData ? `${activePositions!.length} active` : `${POSITION_DETAILS.length} positions`}
+            </Badge>
+          </div>
         </div>
+        {error && !livePositions && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Using static data (subgraph unavailable)
+          </p>
+        )}
       </CardHeader>
       <CardContent className="px-0 pb-0">
         <div className="overflow-x-auto">
@@ -263,66 +312,134 @@ function ActivePositions() {
                 <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">NFT ID</TableHead>
                 <TableHead className="text-xs font-medium h-8 whitespace-nowrap">Price Range</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Liquidity</TableHead>
-                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">ETH</TableHead>
-                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">IDOS</TableHead>
-                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Uncollected Fees</TableHead>
                 <TableHead className="text-xs font-medium h-8 px-4 text-center whitespace-nowrap">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {POSITION_DETAILS.map((pos) => (
-                <TableRow key={pos.id} className="group">
-                  <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
-                    <a
-                      href={`https://arbiscan.io/token/0xd88f38f930b7952f2db2432cb002e7abbf3dd869?a=${pos.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
-                    >
-                      #{pos.id}
-                      <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
-                    </a>
-                  </TableCell>
-                  <TableCell className="text-xs py-2.5 whitespace-nowrap">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-muted-foreground">
-                        <span className="font-mono">{pos.priceLower}</span>
-                        <span className="mx-1">→</span>
-                        <span className="font-mono">{pos.priceUpper}</span>
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/60">
-                        Ticks: {pos.tickLower} to {pos.tickUpper}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
-                    {pos.liquidity}
-                  </TableCell>
-                  <TableCell className="text-xs text-right tabular-nums py-2.5 font-medium whitespace-nowrap">
-                    {formatNumber(pos.tokenAmountETH, 2)}
-                  </TableCell>
-                  <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
-                    {formatNumber(pos.tokenAmountIDOS, 2)}
-                  </TableCell>
-                  <TableCell className="text-xs text-right tabular-nums py-2.5 whitespace-nowrap">
-                    <div className="flex flex-col gap-0.5 items-end">
-                      <span className="font-medium">{formatNumber(pos.uncollectedFeesETH, 4)} ETH</span>
-                      <span className="text-muted-foreground">{formatNumber(pos.uncollectedFeesIDOS, 2)} IDOS</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
-                    {pos.inRange ? (
-                      <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
-                        In Range
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
-                        Out of Range
-                      </Badge>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              {usingLiveData ? (
+                <>
+                  {activePositions!.map((pos) => (
+                    <TableRow key={pos.id} className="group">
+                      <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
+                        <a
+                          href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                        >
+                          #{pos.id}
+                          <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                        </a>
+                      </TableCell>
+                      <TableCell className="text-xs py-2.5 whitespace-nowrap">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-muted-foreground">
+                            <span className="font-mono">{pos.priceLower}</span>
+                            <span className="mx-1">→</span>
+                            <span className="font-mono">{pos.priceUpper}</span>
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/60">
+                            Ticks: {pos.tickLower} to {pos.tickUpper}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
+                        {pos.liquidity}
+                      </TableCell>
+                      <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
+                        {pos.inRange ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                            In Range
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 text-[10px] font-medium hover:bg-amber-500/15">
+                            Out of Range
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {closedPositions && closedPositions.length > 0 && (
+                    <>
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={4} className="text-xs px-4 py-2 text-muted-foreground font-medium bg-muted/30">
+                          Closed Positions ({closedPositions.length})
+                        </TableCell>
+                      </TableRow>
+                      {closedPositions.map((pos) => (
+                        <TableRow key={pos.id} className="group opacity-50">
+                          <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
+                            <a
+                              href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                            >
+                              #{pos.id}
+                              <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-xs py-2.5 whitespace-nowrap text-muted-foreground">
+                            <span className="font-mono">{pos.priceLower}</span>
+                            <span className="mx-1">→</span>
+                            <span className="font-mono">{pos.priceUpper}</span>
+                          </TableCell>
+                          <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
+                            0
+                          </TableCell>
+                          <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
+                            <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
+                              Closed
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </>
+                  )}
+                </>
+              ) : (
+                POSITION_DETAILS.map((pos) => (
+                  <TableRow key={pos.id} className="group">
+                    <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
+                      <a
+                        href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        #{pos.id}
+                        <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                      </a>
+                    </TableCell>
+                    <TableCell className="text-xs py-2.5 whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-muted-foreground">
+                          <span className="font-mono">{pos.priceLower}</span>
+                          <span className="mx-1">→</span>
+                          <span className="font-mono">{pos.priceUpper}</span>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground/60">
+                          Ticks: {pos.tickLower} to {pos.tickUpper}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
+                      {pos.liquidity}
+                    </TableCell>
+                    <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
+                      {pos.inRange ? (
+                        <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                          In Range
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
+                          Out of Range
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>
