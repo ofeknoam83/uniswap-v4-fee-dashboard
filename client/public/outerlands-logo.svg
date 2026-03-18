@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" fill="none">
+  <rect width="400" height="120" rx="8" fill="#1B3329"/>
+  <!-- OC Monogram -->
+  <g transform="translate(30, 15) scale(0.75)">
+    <!-- Vertical pill shapes -->
+    <rect x="22" y="16" width="28" height="72" rx="14" stroke="#4A7C5E" stroke-width="5" fill="none"/>
+    <rect x="22" y="16" width="28" height="72" rx="14" stroke="#4A7C5E" stroke-width="5" fill="none"/>
+    <!-- Horizontal pill shapes -->
+    <rect x="2" y="30" width="68" height="44" rx="22" stroke="#4A7C5E" stroke-width="5" fill="none"/>
+    <!-- Center C shape -->
+    <path d="M52 38 C52 38, 58 38, 58 52 C58 66, 52 66, 52 66" stroke="#4A7C5E" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M20 38 C20 38, 14 38, 14 52 C14 66, 20 66, 20 66" stroke="#4A7C5E" stroke-width="5" fill="none" stroke-linecap="round"/>
+  </g>
+  <!-- Text -->
+  <text x="115" y="55" font-family="Georgia, 'Times New Roman', serif" font-size="32" font-weight="bold" fill="white">Outerlands</text>
+  <text x="115" y="95" font-family="Georgia, 'Times New Roman', serif" font-size="32" font-weight="bold" fill="white">Capital</text>
+</svg>

@@ -53,7 +53,9 @@ import {
   DAILY_FEES,
   METHODOLOGY_NOTE,
   DEPLOYER,
+  POSITION_DETAILS,
   type FeeEvent,
+  type PositionDetail,
 } from "@/lib/data";
 
 function truncateAddress(addr: string) {
@@ -241,6 +243,94 @@ function PositionsList() {
   );
 }
 
+// Active Positions Table
+function ActivePositions() {
+  return (
+    <Card className="border border-border/60">
+      <CardHeader className="pb-3 pt-4 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold">Active Positions</CardTitle>
+          <Badge variant="secondary" className="text-xs font-normal">
+            {POSITION_DETAILS.length} positions
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">NFT ID</TableHead>
+                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">Price Range</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Liquidity</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">ETH</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">IDOS</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Uncollected Fees</TableHead>
+                <TableHead className="text-xs font-medium h-8 px-4 text-center whitespace-nowrap">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {POSITION_DETAILS.map((pos) => (
+                <TableRow key={pos.id} className="group">
+                  <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
+                    <a
+                      href={`https://arbiscan.io/token/0xd88f38f930b7952f2db2432cb002e7abbf3dd869?a=${pos.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      #{pos.id}
+                      <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                    </a>
+                  </TableCell>
+                  <TableCell className="text-xs py-2.5 whitespace-nowrap">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-muted-foreground">
+                        <span className="font-mono">{pos.priceLower}</span>
+                        <span className="mx-1">→</span>
+                        <span className="font-mono">{pos.priceUpper}</span>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60">
+                        Ticks: {pos.tickLower} to {pos.tickUpper}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
+                    {pos.liquidity}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums py-2.5 font-medium whitespace-nowrap">
+                    {formatNumber(pos.tokenAmountETH, 2)}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums py-2.5 text-muted-foreground whitespace-nowrap">
+                    {formatNumber(pos.tokenAmountIDOS, 2)}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums py-2.5 whitespace-nowrap">
+                    <div className="flex flex-col gap-0.5 items-end">
+                      <span className="font-medium">{formatNumber(pos.uncollectedFeesETH, 4)} ETH</span>
+                      <span className="text-muted-foreground">{formatNumber(pos.uncollectedFeesIDOS, 2)} IDOS</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-center px-4 py-2.5 whitespace-nowrap">
+                    {pos.inRange ? (
+                      <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                        In Range
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
+                        Out of Range
+                      </Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Fee split pie chart data
 const PIE_DATA = [
   { name: "Mar 5", value: 2384, fill: "hsl(168, 65%, 38%)" },
@@ -256,13 +346,11 @@ export function Dashboard() {
           <div className="max-w-6xl mx-auto px-4 py-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-3">
-                {/* Uniswap-inspired logo */}
-                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="white" strokeWidth="2" strokeLinejoin="round" fill="none" />
-                    <circle cx="12" cy="12" r="3" fill="white" />
-                  </svg>
-                </div>
+                <img
+                  src="./outerlands-logo.svg"
+                  alt="Outerlands Capital"
+                  className="h-8 w-auto rounded"
+                />
                 <div>
                   <h1 className="text-sm font-semibold text-foreground flex items-center gap-2">
                     Uniswap V4 Fee Dashboard
@@ -441,10 +529,13 @@ export function Dashboard() {
             <FeeEventsTable events={FEE_EVENTS} />
           </div>
 
-          {/* Bottom row: Positions + Methodology */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-5">
-            <PositionsList />
+          {/* Active Positions */}
+          <div className="mb-5">
+            <ActivePositions />
+          </div>
 
+          {/* Methodology */}
+          <div className="grid grid-cols-1 gap-3 mb-5">
             {/* Methodology */}
             <Card className="border border-border/60">
               <CardHeader className="pb-3 pt-4 px-4">
