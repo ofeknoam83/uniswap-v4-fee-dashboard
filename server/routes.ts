@@ -109,24 +109,24 @@ interface PriceData {
 }
 
 async function fetchPriceData(): Promise<PriceData> {
-  // Fetch current tick from on-chain StateView and ETH price from CoinGecko in parallel
+  // Fetch current tick from on-chain StateView and prices from CoinGecko in parallel
   const [currentTick, coingeckoData] = await Promise.all([
     getCurrentTick(),
     fetchCoinGeckoPrices(),
   ]);
 
   const ethUsd = coingeckoData.ethUsd;
-  const tick = currentTick ?? coingeckoData.fallbackTick;
+  const idosUsd = coingeckoData.idosUsd;
 
-  // Derive IDOS USD price from current tick: price = ETH_per_IDOS * ETH_USD
-  const ethPerIdos = tickToRawPrice(tick);
-  const idosUsd = ethPerIdos * ethUsd;
+  // For in-range checking: prefer on-chain tick, fall back to CoinGecko-derived tick
+  const tick = currentTick ?? coingeckoData.fallbackTick;
 
   return { ethUsd, idosUsd, currentTick: tick };
 }
 
 async function fetchCoinGeckoPrices(): Promise<{
   ethUsd: number;
+  idosUsd: number;
   fallbackTick: number;
 }> {
   try {
@@ -141,18 +141,23 @@ async function fetchCoinGeckoPrices(): Promise<{
     };
 
     const ethUsd = data.ethereum?.usd || 2000;
-    const idosUsd = data.idos?.usd || 0.05;
+    const idosUsd = data.idos?.usd || 0.02;
 
-    // Compute fallback tick from price ratio if StateView fails
+    // Compute fallback tick from price ratio (used if StateView is unreachable)
     const ethPerIdos = idosUsd / ethUsd;
     const fallbackTick = Math.round(
       Math.log(ethPerIdos) / Math.log(1.0001)
     );
 
-    return { ethUsd, fallbackTick };
+    return { ethUsd, idosUsd, fallbackTick };
   } catch {
-    // Fallback: IDOS ~$0.03, ETH ~$2000 → ethPerIdos = 0.000015 → tick ≈ -111080
-    return { ethUsd: 2000, fallbackTick: -111080 };
+    // Fallback: IDOS ~$0.02, ETH ~$2000
+    const ethUsd = 2000;
+    const idosUsd = 0.02;
+    const fallbackTick = Math.round(
+      Math.log(idosUsd / ethUsd) / Math.log(1.0001)
+    );
+    return { ethUsd, idosUsd, fallbackTick };
   }
 }
 
