@@ -178,21 +178,21 @@ function KPICard({
 }) {
   return (
     <Card className="border border-border/60">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2">
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-start justify-between gap-1.5 sm:gap-2">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase tracking-wide truncate">
               {title}
             </p>
-            <p className="text-xl font-semibold tabular-nums mt-1 text-foreground">
+            <p className="text-base sm:text-xl font-semibold tabular-nums mt-0.5 sm:mt-1 text-foreground truncate">
               {value}
             </p>
             {subtitle && (
-              <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
             )}
           </div>
-          <div className="p-2 rounded-md bg-primary/8">
-            <Icon className="w-4 h-4 text-primary" />
+          <div className="p-1.5 sm:p-2 rounded-md bg-primary/8 flex-shrink-0">
+            <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
           </div>
         </div>
       </CardContent>
@@ -229,7 +229,38 @@ function FeeEventsTable({ events }: { events: FeeEvent[] }) {
         </div>
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <div className="overflow-x-auto">
+        {/* Mobile: compact card layout */}
+        <div className="md:hidden divide-y divide-border/60">
+          {events.map((e) => (
+            <div key={e.id} className="px-4 py-2.5 space-y-1" data-testid={`fee-event-${e.id}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-foreground font-medium">{e.date}</span>
+                  <span className="text-[10px] text-muted-foreground">{e.time}</span>
+                  <Badge variant={e.type === "fee" ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
+                    {e.type === "fee" ? "Fee" : "LP"}
+                  </Badge>
+                </div>
+                <span className="text-xs font-medium tabular-nums text-primary">{formatUSD(e.usdValue)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="tabular-nums">{formatNumber(e.ethAmount, 4)} ETH + {formatNumber(e.idosAmount, 0)} IDOS</span>
+                <a
+                  href={`https://arbiscan.io/tx/${e.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-primary transition-colors"
+                >
+                  <span className="font-mono">{truncateHash(e.txHash)}</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop: table layout */}
+        <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -361,18 +392,117 @@ function ActivePositions() {
           </p>
         )}
         {feeTotals && feeTotals.usdValue > 0 && (
-          <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[11px] sm:text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Uncollected Fees Total:</span>
             <span className="tabular-nums font-medium text-primary">${feeTotals.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            <span className="text-border">|</span>
-            <span className="tabular-nums">{feeTotals.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH</span>
-            <span className="text-border">|</span>
-            <span className="tabular-nums">{feeTotals.idosFees.toLocaleString("en-US", { minimumFractionDigits: 2 })} IDOS</span>
+            <span className="tabular-nums">{feeTotals.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH + {feeTotals.idosFees.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} IDOS</span>
           </div>
         )}
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <div className="overflow-x-auto">
+        {/* Mobile: card layout */}
+        <div className="md:hidden">
+          {usingLiveData ? (
+            <div className="divide-y divide-border/60">
+              {activePositions!.map((pos) => (
+                <div key={pos.id} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <a
+                      href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-mono text-xs font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      #{pos.id}
+                      <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                    </a>
+                    {pos.inRange ? (
+                      <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                        In Range
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 text-[10px] font-medium hover:bg-amber-500/15">
+                        Out of Range
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    <span className="font-mono">{pos.usdPriceLower}</span>
+                    <span className="mx-1">→</span>
+                    <span className="font-mono">{pos.usdPriceUpper}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-muted/30 rounded px-2.5 py-2">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">Balance</p>
+                      {pos.balance.usdValue > 0 ? (
+                        <>
+                          <p className="text-xs font-medium tabular-nums">
+                            ${pos.balance.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {pos.balance.ethAmount.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH
+                            {pos.balance.idosAmount > 0 && (
+                              <><br />{pos.balance.idosAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })} IDOS</>
+                            )}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">—</p>
+                      )}
+                    </div>
+                    <div className="bg-muted/30 rounded px-2.5 py-2">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">Uncollected Fees</p>
+                      {pos.uncollectedFees.usdValue > 0 ? (
+                        <>
+                          <p className="text-xs font-medium tabular-nums text-primary">
+                            ${pos.uncollectedFees.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {pos.uncollectedFees.ethFees > 0 && (
+                              <>{pos.uncollectedFees.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH</>
+                            )}
+                            {pos.uncollectedFees.ethFees > 0 && pos.uncollectedFees.idosFees > 0 && <br />}
+                            {pos.uncollectedFees.idosFees > 0 && (
+                              <>{pos.uncollectedFees.idosFees.toLocaleString("en-US", { maximumFractionDigits: 0 })} IDOS</>
+                            )}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">—</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {closedPositions && closedPositions.length > 0 && (
+                <>
+                  <div className="px-4 py-2 text-xs text-muted-foreground font-medium bg-muted/30">
+                    Closed Positions ({closedPositions.length})
+                  </div>
+                  {closedPositions.map((pos) => (
+                    <div key={pos.id} className="px-4 py-2.5 flex items-center justify-between opacity-50">
+                      <a
+                        href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-xs font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        #{pos.id}
+                        <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                      </a>
+                      <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">Closed</Badge>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-xs text-center text-muted-foreground">Loading positions...</div>
+          )}
+        </div>
+
+        {/* Desktop: table layout */}
+        <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -553,14 +683,14 @@ function WalletBalance() {
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="px-4 pb-4">
+      <CardContent className="px-3 sm:px-4 pb-4">
         {/* Total value hero */}
-        <div className="mb-4 pb-4 border-b border-border/60">
-          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Total Value</p>
-          <p className="text-2xl font-semibold tabular-nums mt-0.5 text-foreground">
+        <div className="mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-border/60">
+          <p className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase tracking-wide">Total Value</p>
+          <p className="text-xl sm:text-2xl font-semibold tabular-nums mt-0.5 text-foreground">
             ${total.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 sm:gap-3 mt-1 text-[11px] sm:text-xs text-muted-foreground">
             <span className="tabular-nums">{total.ethTotal.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ETH</span>
             <span className="text-border">|</span>
             <span className="tabular-nums">{total.idosTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} IDOS</span>
@@ -674,23 +804,23 @@ export function Dashboard() {
       <div className="min-h-screen bg-background">
         {/* Header */}
         <header className="border-b border-border/60 bg-card/50 backdrop-blur-sm sticky top-0 z-20">
-          <div className="max-w-6xl mx-auto px-4 py-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <img
                   src="./outerlands-logo.svg"
                   alt="Outerlands Capital"
-                  className="h-8 w-auto rounded"
+                  className="h-7 sm:h-8 w-auto rounded flex-shrink-0"
                 />
-                <div>
-                  <h1 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    Uniswap V4 Fee Dashboard
-                    <Badge variant="outline" className="text-[10px] font-normal px-1.5 py-0">
+                <div className="min-w-0">
+                  <h1 className="text-xs sm:text-sm font-semibold text-foreground flex items-center gap-1.5 sm:gap-2">
+                    <span className="truncate">Uniswap V4 Fee Dashboard</span>
+                    <Badge variant="outline" className="text-[10px] font-normal px-1.5 py-0 flex-shrink-0">
                       {CHAIN}
                     </Badge>
                   </h1>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-xs text-muted-foreground font-mono">
+                    <span className="text-[11px] sm:text-xs text-muted-foreground font-mono">
                       {truncateAddress(WALLET_ADDRESS)}
                     </span>
                     <CopyButton text={WALLET_ADDRESS} />
@@ -706,7 +836,7 @@ export function Dashboard() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
                 <span>Deployed by</span>
                 <Badge variant="secondary" className="font-mono text-[10px]">
                   {DEPLOYER}
@@ -716,41 +846,36 @@ export function Dashboard() {
           </div>
         </header>
 
-        <main className="max-w-6xl mx-auto px-4 py-5">
+        <main className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-5">
           {/* Pool info bar */}
-          <div className="flex items-center gap-3 mb-5 flex-wrap text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-5 flex-wrap text-[11px] sm:text-xs text-muted-foreground">
+            <div className="flex items-center gap-1">
               <span className="font-medium text-foreground">Pool:</span>
               <span>{POOL_NAME}</span>
             </div>
-            <span className="text-border">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">Fee Tier:</span>
+            <span className="text-border hidden sm:inline">|</span>
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-foreground">Fee:</span>
               <span>{FEE_TIER}</span>
             </div>
-            <span className="text-border">|</span>
             {livePrices && (
               <>
-                <div className="flex items-center gap-1.5">
+                <span className="text-border hidden sm:inline">|</span>
+                <div className="flex items-center gap-1">
                   <span className="font-medium text-foreground">ETH:</span>
                   <span>{formatUSD(livePrices.ethUsd)}</span>
                 </div>
-                <span className="text-border">|</span>
-                <div className="flex items-center gap-1.5">
+                <span className="text-border hidden sm:inline">|</span>
+                <div className="flex items-center gap-1">
                   <span className="font-medium text-foreground">IDOS:</span>
                   <span>{formatUSD(livePrices.idosUsd)}</span>
                 </div>
-                <span className="text-border">|</span>
               </>
             )}
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">Txns:</span>
-              <span>{POOL_STATS.txCount.toLocaleString()}</span>
-            </div>
           </div>
 
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-5">
             <KPICard
               title="Total ETH Fees"
               value={`${formatNumber(totalEthFees, 4)} ETH`}
@@ -778,12 +903,12 @@ export function Dashboard() {
           </div>
 
           {/* Wallet Balance */}
-          <div className="mb-5">
+          <div className="mb-4 sm:mb-5">
             <WalletBalance />
           </div>
 
           {/* Charts row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3 mb-4 sm:mb-5">
             {/* Daily fees bar chart */}
             <Card className="border border-border/60 lg:col-span-2">
               <CardHeader className="pb-2 pt-4 px-4">
@@ -870,12 +995,12 @@ export function Dashboard() {
           </div>
 
           {/* Events table */}
-          <div className="mb-5">
+          <div className="mb-4 sm:mb-5">
             <FeeEventsTable events={feeEvents} />
           </div>
 
           {/* Active Positions */}
-          <div className="mb-5">
+          <div className="mb-4 sm:mb-5">
             <ActivePositions />
           </div>
 
@@ -964,8 +1089,8 @@ export function Dashboard() {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-border/60 py-4 mt-2">
-          <div className="max-w-6xl mx-auto px-4 flex items-center justify-between flex-wrap gap-2">
+        <footer className="border-t border-border/60 py-3 sm:py-4 mt-2">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4 flex items-center justify-between flex-wrap gap-2">
             <p className="text-[10px] text-muted-foreground">
               Data sourced from Uniswap V4 Subgraph and Arbiscan. Prices approximate at time of collection.
             </p>
