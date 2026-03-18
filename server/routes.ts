@@ -170,32 +170,104 @@ interface SubgraphFeeEvent {
   transaction: { id: string };
 }
 
+async function introspectSubgraph(): Promise<string[]> {
+  const url = `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/subgraphs/id/${V4_SUBGRAPH_ID}`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: `{ __schema { queryType { fields { name } } } }`,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const json = (await res.json()) as {
+      data?: { __schema: { queryType: { fields: { name: string }[] } } };
+    };
+    const fields =
+      json.data?.__schema.queryType.fields.map((f) => f.name) || [];
+    console.log("Subgraph query fields:", fields.join(", "));
+    return fields;
+  } catch (err) {
+    console.error("Failed to introspect subgraph:", err);
+    return [];
+  }
+}
+
+// Cache introspection result
+let subgraphFields: string[] | null = null;
+
 async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
   const url = `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/subgraphs/id/${V4_SUBGRAPH_ID}`;
 
-  // First, find the pool entity ID by querying with origin filter only
-  // The subgraph pool ID may differ from the on-chain bytes32 poolId
-  // Fee collections are modifyLiquidity calls with amount=0 (zero liquidity delta)
-  const query = `{
-    modifyLiquiditys(
-      where: {
-        origin: "${WALLET_ORIGIN}"
-        amount: "0"
+  // Introspect schema once to find the right entity name
+  if (!subgraphFields) {
+    subgraphFields = await introspectSubgraph();
+  }
+
+  // Try known entity names for liquidity modifications
+  const entityName = subgraphFields.includes("modifyLiquiditys")
+    ? "modifyLiquiditys"
+    : subgraphFields.includes("modifyLiquidities")
+      ? "modifyLiquidities"
+      : subgraphFields.includes("positions")
+        ? "positions"
+        : null;
+
+  if (!entityName) {
+    console.error(
+      "No known fee entity found in subgraph. Available:",
+      subgraphFields.join(", "),
+    );
+    return [];
+  }
+
+  console.log(`Using subgraph entity: ${entityName}`);
+
+  // Build query based on entity
+  let query: string;
+  if (entityName === "positions") {
+    // Community/alternative subgraph uses Position entity
+    query = `{
+      ${entityName}(
+        where: {
+          origin: "${WALLET_ORIGIN}"
+        }
+        orderBy: timestamp
+        orderDirection: asc
+        first: 100
+      ) {
+        id
+        timestamp
+        amount0
+        amount1
+        tickLower
+        tickUpper
+        transaction { id }
       }
-      orderBy: timestamp
-      orderDirection: asc
-      first: 100
-    ) {
-      id
-      timestamp
-      amount0
-      amount1
-      tickLower
-      tickUpper
-      pool { id }
-      transaction { id }
-    }
-  }`;
+    }`;
+  } else {
+    // Official V4 subgraph uses ModifyLiquidity entity
+    query = `{
+      ${entityName}(
+        where: {
+          origin: "${WALLET_ORIGIN}"
+          amount: "0"
+        }
+        orderBy: timestamp
+        orderDirection: asc
+        first: 100
+      ) {
+        id
+        timestamp
+        amount0
+        amount1
+        tickLower
+        tickUpper
+        transaction { id }
+      }
+    }`;
+  }
 
   try {
     const res = await fetch(url, {
