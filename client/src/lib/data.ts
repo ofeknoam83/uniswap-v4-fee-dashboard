@@ -124,8 +124,8 @@ export const DAILY_FEES = [
   },
 ];
 
-// Current pool tick (approximate, for in-range determination)
-export const CURRENT_TICK = -46055;
+// Current pool tick (read from PoolManager via extsload, March 2025)
+export const CURRENT_TICK = 115799;
 
 export interface PositionDetail {
   id: number;
@@ -134,143 +134,63 @@ export interface PositionDetail {
   priceLower: string;
   priceUpper: string;
   liquidity: string;
-  tokenAmountETH: number;
-  tokenAmountIDOS: number;
-  uncollectedFeesETH: number;
-  uncollectedFeesIDOS: number;
   inRange: boolean;
+  isActive: boolean;
 }
 
+// Static fallback — live data is fetched from /api/positions
+// Only includes the 5 positions with non-zero on-chain liquidity.
+// Closed positions (146645, 146646, 146649, 146682, 146690) have zero liquidity.
 export const POSITION_DETAILS: PositionDetail[] = [
   {
     id: 146642,
-    tickLower: -92100,
-    tickUpper: 0,
-    priceLower: "0.0000100",
-    priceUpper: "1.0000000",
-    liquidity: "2,847,193,482,019",
-    tokenAmountETH: 3.42,
-    tokenAmountIDOS: 45200.50,
-    uncollectedFeesETH: 0.0812,
-    uncollectedFeesIDOS: 4520.30,
-    inRange: true,
-  },
-  {
-    id: 146645,
-    tickLower: -69080,
-    tickUpper: -23030,
-    priceLower: "0.0001000",
-    priceUpper: "0.1000000",
-    liquidity: "1,523,847,291,003",
-    tokenAmountETH: 2.18,
-    tokenAmountIDOS: 28340.12,
-    uncollectedFeesETH: 0.0453,
-    uncollectedFeesIDOS: 2890.44,
-    inRange: true,
-  },
-  {
-    id: 146646,
-    tickLower: -55260,
-    tickUpper: -36840,
-    priceLower: "0.0003800",
-    priceUpper: "0.0255000",
-    liquidity: "4,102,938,571,284",
-    tokenAmountETH: 5.61,
-    tokenAmountIDOS: 52180.33,
-    uncollectedFeesETH: 0.1240,
-    uncollectedFeesIDOS: 8320.18,
-    inRange: true,
-  },
-  {
-    id: 146649,
-    tickLower: -50970,
-    tickUpper: -41140,
-    priceLower: "0.0006100",
-    priceUpper: "0.0163000",
-    liquidity: "3,291,084,729,451",
-    tokenAmountETH: 4.85,
-    tokenAmountIDOS: 38920.77,
-    uncollectedFeesETH: 0.0981,
-    uncollectedFeesIDOS: 6140.55,
-    inRange: true,
-  },
-  {
-    id: 146682,
-    tickLower: -48450,
-    tickUpper: -43550,
-    priceLower: "0.0007900",
-    priceUpper: "0.0127000",
-    liquidity: "5,847,102,384,192",
-    tokenAmountETH: 7.23,
-    tokenAmountIDOS: 61440.20,
-    uncollectedFeesETH: 0.1690,
-    uncollectedFeesIDOS: 10250.32,
-    inRange: true,
-  },
-  {
-    id: 146690,
-    tickLower: -47300,
-    tickUpper: -44800,
-    priceLower: "0.0008900",
-    priceUpper: "0.0112000",
-    liquidity: "6,193,482,018,374",
-    tokenAmountETH: 8.10,
-    tokenAmountIDOS: 72500.44,
-    uncollectedFeesETH: 0.2015,
-    uncollectedFeesIDOS: 12400.10,
-    inRange: true,
+    tickLower: 104800,
+    tickUpper: 115800,
+    priceLower: "$0.020",
+    priceUpper: "$0.060",
+    liquidity: "8380052099627785901912",
+    inRange: false,
+    isActive: true,
   },
   {
     id: 146750,
-    tickLower: -46500,
-    tickUpper: -45500,
-    priceLower: "0.0009600",
-    priceUpper: "0.0106000",
-    liquidity: "8,401,293,847,102",
-    tokenAmountETH: 4.92,
-    tokenAmountIDOS: 95200.18,
-    uncollectedFeesETH: 0.3820,
-    uncollectedFeesIDOS: 18900.55,
-    inRange: true,
+    tickLower: 34873,
+    tickUpper: 52024,
+    priceLower: "$12.00",
+    priceUpper: "$66.66",
+    liquidity: "12962319182993429123989",
+    inRange: false,
+    isActive: true,
   },
   {
     id: 146806,
-    tickLower: -52900,
-    tickUpper: -46200,
-    priceLower: "0.0005100",
-    priceUpper: "0.0098000",
-    liquidity: "2,019,384,710,293",
-    tokenAmountETH: 2.94,
-    tokenAmountIDOS: 22150.89,
-    uncollectedFeesETH: 0.0520,
-    uncollectedFeesIDOS: 3100.42,
+    tickLower: 46141,
+    tickUpper: 70224,
+    priceLower: "$1.94",
+    priceUpper: "$21.61",
+    liquidity: "12481437836459845701406",
     inRange: false,
+    isActive: true,
   },
   {
     id: 146807,
-    tickLower: -57500,
-    tickUpper: -46100,
-    priceLower: "0.0003200",
-    priceUpper: "0.0099000",
-    liquidity: "1,847,291,038,472",
-    tokenAmountETH: 2.51,
-    tokenAmountIDOS: 19800.65,
-    uncollectedFeesETH: 0.0415,
-    uncollectedFeesIDOS: 2650.88,
+    tickLower: 52024,
+    tickUpper: 59841,
+    priceLower: "$5.49",
+    priceUpper: "$12.00",
+    liquidity: "64212763316399157751696",
     inRange: false,
+    isActive: true,
   },
   {
     id: 147574,
-    tickLower: -46200,
-    tickUpper: -45800,
-    priceLower: "0.0009800",
-    priceUpper: "0.0103000",
-    liquidity: "9,291,038,472,193",
-    tokenAmountETH: 6.14,
-    tokenAmountIDOS: 108300.42,
-    uncollectedFeesETH: 0.4512,
-    uncollectedFeesIDOS: 22100.77,
-    inRange: true,
+    tickLower: 52024,
+    tickUpper: 58656,
+    priceLower: "$6.18",
+    priceUpper: "$12.00",
+    liquidity: "26082282696297971040275",
+    inRange: false,
+    isActive: true,
   },
 ];
 

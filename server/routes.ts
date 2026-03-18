@@ -7,7 +7,7 @@ const POSITION_MANAGER = "0xd88f38f930b7952f2db2432cb002e7abbf3dd869";
 const STATE_VIEW = "0x76fd297e2d437cd7f76d50f01afe6160f86e9990";
 const POOL_ID =
   "0xab92bb13dae336cebff495ca2bc0238be956b0c89aec23342183a092b22f06aa";
-const GRAPH_API_KEY = "fce0a3729b3cb70677cd39b00c586b2a";
+const GRAPH_API_KEY = process.env.GRAPH_API_KEY || "";
 const V4_SUBGRAPH_ID = "G5TsTKNi8yhPSV7kycaE23oWbqv9zzNqR49FoEQjzq1r";
 const WALLET_ORIGIN = "0x8bee39a60e5b40fa76669a6ad74e84aa08445a7c";
 
@@ -20,10 +20,10 @@ const KNOWN_POSITION_IDS = [146642, 146750, 146806, 146807, 147574];
 const POSITION_META: Record<number, { tickLower: number; tickUpper: number }> =
   {
     146642: { tickLower: 104800, tickUpper: 115800 },
-    146750: { tickLower: 104600, tickUpper: 108600 },
-    146806: { tickLower: 107400, tickUpper: 111600 },
-    146807: { tickLower: 108600, tickUpper: 110000 },
-    147574: { tickLower: 108600, tickUpper: 109800 },
+    146750: { tickLower: 34873, tickUpper: 52024 },
+    146806: { tickLower: 46141, tickUpper: 70224 },
+    146807: { tickLower: 52024, tickUpper: 59841 },
+    147574: { tickLower: 52024, tickUpper: 58656 },
   };
 
 // --- RPC helpers ---
@@ -376,6 +376,9 @@ export async function registerRoutes(
           const idosAmount = Math.abs(parseFloat(e.amount1));
           const usdValue =
             ethAmount * prices.ethUsd + idosAmount * prices.idosUsd;
+          // In V4, fee collections are modifyLiquidity calls with zero liquidity delta.
+          // Events with non-zero amount are liquidity adds/removes (which may also
+          // auto-collect fees, but the amount0/amount1 includes the liquidity change).
           const isFeeOnly =
             e.amount === "0" || e.amount === 0;
 
@@ -428,11 +431,14 @@ export async function registerRoutes(
         })
       );
 
-      const totalEthFees = feeEvents.reduce(
+      // Only sum fee-only events (zero liquidity delta) for the totals.
+      // Liquidity adds/removes are shown in the table but excluded from fee totals.
+      const feeOnlyEvents = feeEvents.filter((e) => e.type === "fee");
+      const totalEthFees = feeOnlyEvents.reduce(
         (sum, e) => sum + e.ethAmount,
         0
       );
-      const totalIdosFees = feeEvents.reduce(
+      const totalIdosFees = feeOnlyEvents.reduce(
         (sum, e) => sum + e.idosAmount,
         0
       );
