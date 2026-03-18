@@ -37,6 +37,7 @@ export interface FeeEvent {
   idosAmount: number;
   usdValue: number;
   txHash: string;
+  type?: "fee" | "liquidity";
 }
 
 export const FEE_EVENTS: FeeEvent[] = [

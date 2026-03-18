@@ -186,7 +186,7 @@ function FeeEventsTable({ events }: { events: FeeEvent[] }) {
     <Card className="border border-border/60">
       <CardHeader className="pb-3 pt-4 px-4">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-semibold">Fee Collection Events</CardTitle>
+          <CardTitle className="text-sm font-semibold">Liquidity Events</CardTitle>
           <Badge variant="secondary" className="text-xs font-normal">
             {events.length} events
           </Badge>
@@ -198,6 +198,7 @@ function FeeEventsTable({ events }: { events: FeeEvent[] }) {
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">Date</TableHead>
+                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">Type</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">ETH</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">IDOS</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">USD</TableHead>
@@ -210,6 +211,11 @@ function FeeEventsTable({ events }: { events: FeeEvent[] }) {
                   <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
                     <span className="text-foreground font-medium">{e.date}</span>
                     <span className="text-muted-foreground ml-1.5">{e.time}</span>
+                  </TableCell>
+                  <TableCell className="text-xs py-2.5 whitespace-nowrap">
+                    <Badge variant={e.type === "fee" ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
+                      {e.type === "fee" ? "Fee" : "LP"}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-xs text-right tabular-nums py-2.5 font-medium whitespace-nowrap">
                     {formatNumber(e.ethAmount, 4)}

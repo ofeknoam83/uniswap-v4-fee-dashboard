@@ -245,8 +245,6 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
     }
   }`;
 
-  console.log("Subgraph query:", JSON.stringify(query));
-
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -265,16 +263,12 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
     }
     const allEvents = json.data?.[entityName] || [];
     console.log(`Subgraph returned ${allEvents.length} total events for origin ${originLower}`);
-    if (allEvents.length > 0) {
-      console.log("First event:", JSON.stringify(allEvents[0]));
-    }
 
-    // Filter to fee-only collections: amount (liquidity delta) = 0
-    const feeEvents = allEvents.filter(
-      (e) => e.amount === "0" || e.amount === 0,
-    );
-    console.log(`Of those, ${feeEvents.length} are fee collections (amount=0)`);
-    return feeEvents;
+    // Return ALL events — in V4, fees are collected as part of every
+    // modifyLiquidity call and are embedded in amount0/amount1.
+    // Events with amount=0 are pure fee collections (may be $0 if out of range).
+    // Events with amount!=0 include both liquidity changes and accrued fees.
+    return allEvents;
   } catch (err) {
     console.error("Failed to fetch fee events from subgraph:", err);
     return [];
@@ -368,16 +362,9 @@ export async function registerRoutes(
         fetchPriceData(),
       ]);
 
-      console.log(`Processing ${events.length} fee events from subgraph`);
-      if (events.length > 0) {
-        console.log("Fee events sample:", events.slice(0, 3).map(e => ({
-          amount0: e.amount0, amount1: e.amount1, amount: e.amount, timestamp: e.timestamp
-        })));
-      }
-
       const feeEvents = events
         .filter((e) => {
-          // Only include events where fees were actually collected
+          // Only include events with actual token movement
           const eth = Math.abs(parseFloat(e.amount0));
           const idos = Math.abs(parseFloat(e.amount1));
           return eth > 0 || idos > 0;
@@ -389,6 +376,8 @@ export async function registerRoutes(
           const idosAmount = Math.abs(parseFloat(e.amount1));
           const usdValue =
             ethAmount * prices.ethUsd + idosAmount * prices.idosUsd;
+          const isFeeOnly =
+            e.amount === "0" || e.amount === 0;
 
           return {
             id: i + 1,
@@ -399,6 +388,7 @@ export async function registerRoutes(
             idosAmount,
             usdValue: Math.round(usdValue * 100) / 100,
             txHash: e.transaction.id,
+            type: isFeeOnly ? "fee" : "liquidity",
           };
         });
 
