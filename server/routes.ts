@@ -4,6 +4,7 @@ import { storage } from "./storage";
 
 const RPC_URL = "https://arb1.arbitrum.io/rpc";
 const POSITION_MANAGER = "0xd88f38f930b7952f2db2432cb002e7abbf3dd869";
+const STATE_VIEW = "0x76fd297e2d437cd7f76d50f01afe6160f86e9990";
 const POOL_ID =
   "0xab92bb13dae336cebff495ca2bc0238be956b0c89aec23342183a092b22f06aa";
 
@@ -67,24 +68,38 @@ async function getPositionLiquidity(id: number): Promise<bigint> {
   }
 }
 
+// --- Pool state helpers ---
+
+// getSlot0(bytes32) = 0xc815641c — returns (uint160 sqrtPriceX96, int24 tick, uint24 protocolFee, uint24 lpFee)
+async function getCurrentTick(): Promise<number | null> {
+  try {
+    // Pool ID without 0x prefix, already 32 bytes
+    const poolIdParam = POOL_ID.slice(2);
+    const result = await ethCall(STATE_VIEW, "0xc815641c" + poolIdParam);
+    if (!result || result === "0x" || result.length < 130) return null;
+    // Result layout: uint160 sqrtPriceX96 (32 bytes) | int24 tick (32 bytes) | ...
+    // tick is at offset 32 bytes (64 hex chars) after 0x prefix
+    const tickHex = result.slice(2 + 64, 2 + 128);
+    const tickBigInt = BigInt("0x" + tickHex);
+    // int24 is signed — check if negative (top bit of int256 set)
+    if (tickBigInt > BigInt("0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")) {
+      return Number(tickBigInt - BigInt("0x10000000000000000000000000000000000000000000000000000000000000000"));
+    }
+    return Number(tickBigInt);
+  } catch (err) {
+    console.error("Failed to get current tick from StateView:", err);
+    return null;
+  }
+}
+
 // --- Price helpers ---
 
-// In this pool: token0 = lower address, token1 = higher address
 // tick price = 1.0001^tick = token1/token0
-// We need to determine what token0 and token1 are to show USD prices.
-// The pool is ETH/IDOS. In V4 with native ETH, currency0 = address(0) = ETH,
-// currency1 = IDOS token. So price = IDOS/ETH = 1.0001^tick.
-// But given our tick ranges (-46200 range) produce price ≈ 0.00986,
-// that means 0.00986 IDOS per 1 ETH, which implies IDOS is very expensive.
-// More likely: token0 = IDOS (lower ERC20 address), token1 = WETH.
-// price = WETH/IDOS = 1.0001^tick ≈ 0.00986 ETH per 1 IDOS.
+// In this pool: token0 = IDOS, token1 = WETH (based on address ordering)
+// So price = WETH/IDOS = ETH per 1 IDOS
 
 function tickToRawPrice(tick: number): number {
   return Math.pow(1.0001, tick);
-}
-
-function priceToTick(price: number): number {
-  return Math.log(price) / Math.log(1.0001);
 }
 
 interface PriceData {
@@ -93,9 +108,28 @@ interface PriceData {
   currentTick: number;
 }
 
-async function fetchPrices(): Promise<PriceData> {
+async function fetchPriceData(): Promise<PriceData> {
+  // Fetch current tick from on-chain StateView and ETH price from CoinGecko in parallel
+  const [currentTick, coingeckoData] = await Promise.all([
+    getCurrentTick(),
+    fetchCoinGeckoPrices(),
+  ]);
+
+  const ethUsd = coingeckoData.ethUsd;
+  const tick = currentTick ?? coingeckoData.fallbackTick;
+
+  // Derive IDOS USD price from current tick: price = ETH_per_IDOS * ETH_USD
+  const ethPerIdos = tickToRawPrice(tick);
+  const idosUsd = ethPerIdos * ethUsd;
+
+  return { ethUsd, idosUsd, currentTick: tick };
+}
+
+async function fetchCoinGeckoPrices(): Promise<{
+  ethUsd: number;
+  fallbackTick: number;
+}> {
   try {
-    // Fetch ETH and IDOS prices from CoinGecko
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=ethereum,idos&vs_currencies=usd",
       { signal: AbortSignal.timeout(5000) }
@@ -109,15 +143,15 @@ async function fetchPrices(): Promise<PriceData> {
     const ethUsd = data.ethereum?.usd || 2000;
     const idosUsd = data.idos?.usd || 0.05;
 
-    // Derive current tick from price ratio
-    // price = WETH/IDOS = idosUsd / ethUsd (how much ETH per 1 IDOS)
+    // Compute fallback tick from price ratio if StateView fails
     const ethPerIdos = idosUsd / ethUsd;
-    const currentTick = priceToTick(ethPerIdos);
+    const fallbackTick = Math.round(
+      Math.log(ethPerIdos) / Math.log(1.0001)
+    );
 
-    return { ethUsd, idosUsd, currentTick };
+    return { ethUsd, fallbackTick };
   } catch {
-    // Fallback prices if CoinGecko unavailable
-    return { ethUsd: 2000, idosUsd: 0.05, currentTick: -45500 };
+    return { ethUsd: 2000, fallbackTick: -45500 };
   }
 }
 
@@ -138,9 +172,9 @@ export async function registerRoutes(
         return res.json(positionCache.data);
       }
 
-      // Fetch prices and position liquidity in parallel
+      // Fetch prices/tick and position liquidity in parallel
       const [prices, ...liquidities] = await Promise.all([
-        fetchPrices(),
+        fetchPriceData(),
         ...KNOWN_POSITION_IDS.map((id) => getPositionLiquidity(id)),
       ]);
 
@@ -176,16 +210,11 @@ export async function registerRoutes(
         };
       });
 
-      // Compute TVL: sum of active position values (rough estimate from liquidity)
-      // For a more accurate TVL, we'd need to compute token amounts from liquidity + ticks
-      const currentIdosPrice = prices.idosUsd;
-      const currentEthPrice = prices.ethUsd;
-
       const responseData = {
         positions,
         prices: {
-          ethUsd: currentEthPrice,
-          idosUsd: currentIdosPrice,
+          ethUsd: prices.ethUsd,
+          idosUsd: prices.idosUsd,
           currentTick: Math.round(prices.currentTick),
         },
       };
