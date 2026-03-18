@@ -39,7 +39,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import {
   WALLET_ADDRESS,
   CHAIN,
@@ -768,7 +767,7 @@ export function Dashboard() {
             <p className="text-[10px] text-muted-foreground">
               Data sourced from Uniswap V4 Subgraph and Arbiscan. Prices approximate at time of collection.
             </p>
-            <PerplexityAttribution />
+
           </div>
         </footer>
       </div>
