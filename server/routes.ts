@@ -684,6 +684,11 @@ export async function registerRoutes(
         getSlot0(),
       ]);
 
+      // Log tick sources for debugging
+      const onChainTick = slot0?.tick;
+      const fallbackTick = prices.currentTick;
+      console.log(`Tick sources: on-chain=${onChainTick ?? 'FAILED'}, fallback=${Math.round(fallbackTick)}, using=${onChainTick ?? Math.round(fallbackTick)}`);
+
       // Enrich active positions with balance + uncollected fees in batches
       const activePositions = discoveredPositions.filter((p) => p.isActive);
       const feeResults = await batchParallel(
@@ -707,10 +712,13 @@ export async function registerRoutes(
         const usdPriceUpper = Math.max(usdAtTickLower, usdAtTickUpper);
 
         // In range: current tick falls within position's tick range
+        // Use slot0.tick (direct on-chain) rather than prices.currentTick
+        // which may fall back to a CoinGecko-derived tick that's imprecise
+        const onChainTick = slot0?.tick ?? prices.currentTick;
         const inRange =
           p.isActive &&
-          prices.currentTick >= p.tickLower &&
-          prices.currentTick < p.tickUpper;
+          onChainTick >= p.tickLower &&
+          onChainTick < p.tickUpper;
 
         // Compute position balance (ETH + IDOS amounts from liquidity)
         let ethAmount = 0;
@@ -768,7 +776,7 @@ export async function registerRoutes(
         prices: {
           ethUsd: prices.ethUsd,
           idosUsd: prices.idosUsd,
-          currentTick: Math.round(prices.currentTick),
+          currentTick: Math.round(slot0?.tick ?? prices.currentTick),
         },
         uncollectedFeeTotals: {
           ethFees: Math.round(totalUncollectedEth * 10000) / 10000,
