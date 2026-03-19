@@ -353,8 +353,8 @@ function ActivePositions() {
   // Re-use the same query key — React Query deduplicates
   const { data, isLoading, error } = useQuery<PositionsResponse>({
     queryKey: ["/api/positions"],
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
     retry: 2,
     placeholderData: (prev) => prev,
   });
@@ -647,8 +647,8 @@ function ActivePositions() {
 function WalletBalance() {
   const { data, isLoading } = useQuery<WalletResponse>({
     queryKey: ["/api/wallet"],
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
     retry: 2,
     placeholderData: (prev) => prev,
   });
@@ -767,16 +767,16 @@ const PIE_COLORS = [
 export function Dashboard() {
   const positionsQuery = useQuery<PositionsResponse>({
     queryKey: ["/api/positions"],
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
     retry: 2,
     placeholderData: (prev) => prev,
   });
 
   const feesQuery = useQuery<FeesResponse>({
     queryKey: ["/api/fees"],
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
     retry: 2,
     placeholderData: (prev) => prev,
   });

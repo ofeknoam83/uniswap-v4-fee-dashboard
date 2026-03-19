@@ -223,7 +223,7 @@ interface DiscoveredPosition {
 
 let fullPositionCache: { positions: DiscoveredPosition[]; timestamp: number } | null = null;
 let inflightDiscovery: Promise<DiscoveredPosition[]> | null = null;
-const POSITION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const POSITION_CACHE_TTL = 2 * 60 * 1000; // 2 minutes — allows new positions to appear quickly
 
 async function discoverPositionIds(): Promise<number[]> {
   const url = GRAPH_API_KEY
@@ -463,7 +463,7 @@ async function fetchPriceData(): Promise<PriceData> {
 
 // Price cache to avoid hammering APIs on every request
 let priceCache: { ethUsd: number; idosUsd: number; fallbackTick: number; timestamp: number } | null = null;
-const PRICE_CACHE_TTL = 60 * 1000; // 1 minute
+const PRICE_CACHE_TTL = 30 * 1000; // 30 seconds — keep prices fresh
 
 async function fetchCoinGeckoPrices(): Promise<{
   ethUsd: number;
@@ -663,7 +663,7 @@ async function fetchFeeEvents(): Promise<SubgraphFeeEvent[]> {
 
 let positionCache: { data: any; timestamp: number } | null = null;
 let feeCache: { data: any; timestamp: number } | null = null;
-const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_TTL = 60 * 1000; // 1 minute — positions/fees/wallet refresh quickly
 
 // --- Routes ---
 
