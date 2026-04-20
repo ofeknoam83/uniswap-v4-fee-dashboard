@@ -10,5 +10,9 @@ export async function registerRoutes(
   // use storage to perform CRUD operations on the storage interface
   // e.g. app.get("/api/items", async (_req, res) => { ... })
 
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   return httpServer;
 }
