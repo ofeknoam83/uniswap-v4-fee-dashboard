@@ -990,6 +990,10 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   return httpServer;
 }
 
