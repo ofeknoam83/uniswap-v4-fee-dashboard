@@ -36,9 +36,11 @@ import {
   Info,
   Copy,
   Check,
+  PiggyBank,
+  CircleDollarSign,
 } from "lucide-react";
 import { useState } from "react";
-import { PerplexityAttribution } from "@/components/PerplexityAttribution";
+import { useQuery } from "@tanstack/react-query";
 import {
   WALLET_ADDRESS,
   CHAIN,
@@ -53,8 +55,76 @@ import {
   DAILY_FEES,
   METHODOLOGY_NOTE,
   DEPLOYER,
+  POSITION_DETAILS,
+  POSITION_MANAGER,
   type FeeEvent,
+  type PositionDetail,
 } from "@/lib/data";
+
+interface WalletBalanceData {
+  ethBalance: number;
+  idosBalance: number;
+  usdValue: number;
+}
+
+interface PositionBalanceData {
+  ethTotal: number;
+  idosTotal: number;
+  usdValue: number;
+  breakdown: { id: number; ethAmount: number; idosAmount: number; usdValue: number }[];
+}
+
+interface WalletResponse {
+  wallet: WalletBalanceData;
+  positions: PositionBalanceData;
+  total: { ethTotal: number; idosTotal: number; usdValue: number };
+  prices: { ethUsd: number; idosUsd: number };
+}
+
+interface FeesResponse {
+  events: FeeEvent[];
+  dailyFees: { date: string; ethFees: number; idosFees: number; usdValue: number; events: number }[];
+  totals: { ethFees: number; idosFees: number; usdFees: number };
+  prices: { ethUsd: number; idosUsd: number };
+}
+
+interface PositionBalance {
+  ethAmount: number;
+  idosAmount: number;
+  usdValue: number;
+}
+
+interface PositionFees {
+  ethFees: number;
+  idosFees: number;
+  usdValue: number;
+}
+
+interface LivePosition {
+  id: number;
+  tokenId: string;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: string;
+  isActive: boolean;
+  inRange: boolean;
+  usdPriceLower: string;
+  usdPriceUpper: string;
+  balance: PositionBalance;
+  uncollectedFees: PositionFees;
+}
+
+interface LivePrices {
+  ethUsd: number;
+  idosUsd: number;
+  currentTick: number;
+}
+
+interface PositionsResponse {
+  positions: LivePosition[];
+  prices: LivePrices;
+  uncollectedFeeTotals: PositionFees;
+}
 
 function truncateAddress(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -108,21 +178,21 @@ function KPICard({
 }) {
   return (
     <Card className="border border-border/60">
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2">
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-start justify-between gap-1.5 sm:gap-2">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase tracking-wide truncate">
               {title}
             </p>
-            <p className="text-xl font-semibold tabular-nums mt-1 text-foreground">
+            <p className="text-base sm:text-xl font-semibold tabular-nums mt-0.5 sm:mt-1 text-foreground truncate">
               {value}
             </p>
             {subtitle && (
-              <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>
             )}
           </div>
-          <div className="p-2 rounded-md bg-primary/8">
-            <Icon className="w-4 h-4 text-primary" />
+          <div className="p-1.5 sm:p-2 rounded-md bg-primary/8 flex-shrink-0">
+            <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary" />
           </div>
         </div>
       </CardContent>
@@ -152,18 +222,50 @@ function FeeEventsTable({ events }: { events: FeeEvent[] }) {
     <Card className="border border-border/60">
       <CardHeader className="pb-3 pt-4 px-4">
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-sm font-semibold">Fee Collection Events</CardTitle>
+          <CardTitle className="text-sm font-semibold">Liquidity Events</CardTitle>
           <Badge variant="secondary" className="text-xs font-normal">
             {events.length} events
           </Badge>
         </div>
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <div className="overflow-x-auto">
+        {/* Mobile: compact card layout */}
+        <div className="md:hidden divide-y divide-border/60">
+          {events.map((e) => (
+            <div key={e.id} className="px-4 py-2.5 space-y-1" data-testid={`fee-event-${e.id}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-foreground font-medium">{e.date}</span>
+                  <span className="text-[10px] text-muted-foreground">{e.time}</span>
+                  <Badge variant={e.type === "fee" ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
+                    {e.type === "fee" ? "Fee" : "LP"}
+                  </Badge>
+                </div>
+                <span className="text-xs font-medium tabular-nums text-primary">{formatUSD(e.usdValue)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span className="tabular-nums">{formatNumber(e.ethAmount, 4)} ETH + {formatNumber(e.idosAmount, 0)} IDOS</span>
+                <a
+                  href={`https://arbiscan.io/tx/${e.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 hover:text-primary transition-colors"
+                >
+                  <span className="font-mono">{truncateHash(e.txHash)}</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop: table layout */}
+        <div className="hidden md:block overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">Date</TableHead>
+                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">Type</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">ETH</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">IDOS</TableHead>
                 <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">USD</TableHead>
@@ -176,6 +278,11 @@ function FeeEventsTable({ events }: { events: FeeEvent[] }) {
                   <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
                     <span className="text-foreground font-medium">{e.date}</span>
                     <span className="text-muted-foreground ml-1.5">{e.time}</span>
+                  </TableCell>
+                  <TableCell className="text-xs py-2.5 whitespace-nowrap">
+                    <Badge variant={e.type === "fee" ? "default" : "secondary"} className="text-[10px] px-1.5 py-0">
+                      {e.type === "fee" ? "Fee" : "LP"}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-xs text-right tabular-nums py-2.5 font-medium whitespace-nowrap">
                     {formatNumber(e.ethAmount, 4)}
@@ -241,37 +348,479 @@ function PositionsList() {
   );
 }
 
-// Fee split pie chart data
-const PIE_DATA = [
+// Active Positions Table (uses shared query from Dashboard)
+function ActivePositions() {
+  // Re-use the same query key — React Query deduplicates
+  const { data, isLoading, error } = useQuery<PositionsResponse>({
+    queryKey: ["/api/positions"],
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 2,
+    placeholderData: (prev) => prev,
+  });
+
+  const livePositions = data?.positions;
+  const activePositions = livePositions?.filter((p) => p.isActive);
+  const closedPositions = livePositions?.filter((p) => !p.isActive);
+  const usingLiveData = !!livePositions;
+  const feeTotals = data?.uncollectedFeeTotals;
+
+  return (
+    <Card className="border border-border/60">
+      <CardHeader className="pb-3 pt-4 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold">Open Positions</CardTitle>
+          <div className="flex items-center gap-2">
+            {usingLiveData && (
+              <Badge variant="outline" className="text-[10px] font-normal text-emerald-600 border-emerald-500/30">
+                Live
+              </Badge>
+            )}
+            {isLoading && (
+              <Badge variant="outline" className="text-[10px] font-normal">
+                Loading...
+              </Badge>
+            )}
+            <Badge variant="secondary" className="text-xs font-normal">
+              {usingLiveData ? `${activePositions!.length} active` : `${POSITION_DETAILS.length} positions`}
+            </Badge>
+          </div>
+        </div>
+        {error && !livePositions && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Using static data (subgraph unavailable)
+          </p>
+        )}
+        {feeTotals && feeTotals.usdValue > 0 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[11px] sm:text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Uncollected Fees Total:</span>
+            <span className="tabular-nums font-medium text-primary">${feeTotals.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="tabular-nums">{feeTotals.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH + {feeTotals.idosFees.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} IDOS</span>
+          </div>
+        )}
+      </CardHeader>
+      <CardContent className="px-0 pb-0">
+        {/* Mobile: card layout */}
+        <div className="md:hidden">
+          {usingLiveData ? (
+            <div className="divide-y divide-border/60">
+              {activePositions!.map((pos) => (
+                <div key={pos.id} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <a
+                      href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-mono text-xs font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      #{pos.id}
+                      <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                    </a>
+                    {pos.inRange ? (
+                      <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                        In Range
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 text-[10px] font-medium hover:bg-amber-500/15">
+                        Out of Range
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    <span className="font-mono">{pos.usdPriceLower}</span>
+                    <span className="mx-1">→</span>
+                    <span className="font-mono">{pos.usdPriceUpper}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-muted/30 rounded px-2.5 py-2">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">Balance</p>
+                      {pos.balance.usdValue > 0 ? (
+                        <>
+                          <p className="text-xs font-medium tabular-nums">
+                            ${pos.balance.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {pos.balance.ethAmount.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH
+                            {pos.balance.idosAmount > 0 && (
+                              <><br />{pos.balance.idosAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })} IDOS</>
+                            )}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">—</p>
+                      )}
+                    </div>
+                    <div className="bg-muted/30 rounded px-2.5 py-2">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">Uncollected Fees</p>
+                      {pos.uncollectedFees.usdValue > 0 ? (
+                        <>
+                          <p className="text-xs font-medium tabular-nums text-primary">
+                            ${pos.uncollectedFees.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">
+                            {pos.uncollectedFees.ethFees > 0 && (
+                              <>{pos.uncollectedFees.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH</>
+                            )}
+                            {pos.uncollectedFees.ethFees > 0 && pos.uncollectedFees.idosFees > 0 && <br />}
+                            {pos.uncollectedFees.idosFees > 0 && (
+                              <>{pos.uncollectedFees.idosFees.toLocaleString("en-US", { maximumFractionDigits: 0 })} IDOS</>
+                            )}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">—</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {closedPositions && closedPositions.length > 0 && (
+                <>
+                  <div className="px-4 py-2 text-xs text-muted-foreground font-medium bg-muted/30">
+                    Closed Positions ({closedPositions.length})
+                  </div>
+                  {closedPositions.map((pos) => (
+                    <div key={pos.id} className="px-4 py-2.5 flex items-center justify-between opacity-50">
+                      <a
+                        href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-mono text-xs font-medium text-foreground hover:text-primary transition-colors"
+                      >
+                        #{pos.id}
+                        <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                      </a>
+                      <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">Closed</Badge>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-xs text-center text-muted-foreground">Loading positions...</div>
+          )}
+        </div>
+
+        {/* Desktop: table layout */}
+        <div className="hidden md:block overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="text-xs font-medium h-8 px-4 whitespace-nowrap">NFT ID</TableHead>
+                <TableHead className="text-xs font-medium h-8 whitespace-nowrap">IDOS Price Range</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-center whitespace-nowrap">Status</TableHead>
+                <TableHead className="text-xs font-medium h-8 text-right whitespace-nowrap">Liquidity Balance</TableHead>
+                <TableHead className="text-xs font-medium h-8 px-4 text-right whitespace-nowrap">Uncollected Fees</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {usingLiveData ? (
+                <>
+                  {activePositions!.map((pos) => (
+                    <TableRow key={pos.id} className="group">
+                      <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
+                        <a
+                          href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                        >
+                          #{pos.id}
+                          <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                        </a>
+                      </TableCell>
+                      <TableCell className="text-xs py-2.5 whitespace-nowrap">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-foreground font-medium">
+                            <span className="font-mono">{pos.usdPriceLower}</span>
+                            <span className="mx-1 text-muted-foreground">→</span>
+                            <span className="font-mono">{pos.usdPriceUpper}</span>
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/60">
+                            Ticks: {pos.tickLower} to {pos.tickUpper}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-center py-2.5 whitespace-nowrap">
+                        {pos.inRange ? (
+                          <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/20 text-[10px] font-medium hover:bg-emerald-500/15">
+                            In Range
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-amber-500/15 text-amber-600 border-amber-500/20 text-[10px] font-medium hover:bg-amber-500/15">
+                            Out of Range
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-right py-2.5 whitespace-nowrap">
+                        {pos.balance.usdValue > 0 ? (
+                          <div className="flex flex-col gap-0.5 items-end">
+                            <span className="font-medium tabular-nums text-foreground">
+                              ${pos.balance.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {pos.balance.ethAmount.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH
+                              {pos.balance.idosAmount > 0 && (
+                                <> + {pos.balance.idosAmount.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} IDOS</>
+                              )}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-right px-4 py-2.5 whitespace-nowrap">
+                        {pos.uncollectedFees.usdValue > 0 ? (
+                          <div className="flex flex-col gap-0.5 items-end">
+                            <span className="font-medium tabular-nums text-primary">
+                              ${pos.uncollectedFees.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground tabular-nums">
+                              {pos.uncollectedFees.ethFees > 0 && (
+                                <>{pos.uncollectedFees.ethFees.toLocaleString("en-US", { minimumFractionDigits: 4 })} ETH</>
+                              )}
+                              {pos.uncollectedFees.ethFees > 0 && pos.uncollectedFees.idosFees > 0 && " + "}
+                              {pos.uncollectedFees.idosFees > 0 && (
+                                <>{pos.uncollectedFees.idosFees.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} IDOS</>
+                              )}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {closedPositions && closedPositions.length > 0 && (
+                    <>
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={5} className="text-xs px-4 py-2 text-muted-foreground font-medium bg-muted/30">
+                          Closed Positions ({closedPositions.length})
+                        </TableCell>
+                      </TableRow>
+                      {closedPositions.map((pos) => (
+                        <TableRow key={pos.id} className="group opacity-50">
+                          <TableCell className="text-xs px-4 py-2.5 whitespace-nowrap">
+                            <a
+                              href={`https://arbiscan.io/token/${POSITION_MANAGER}?a=${pos.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-mono font-medium text-foreground hover:text-primary transition-colors"
+                            >
+                              #{pos.id}
+                              <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-xs py-2.5 whitespace-nowrap text-muted-foreground">
+                            <span className="font-mono">{pos.usdPriceLower}</span>
+                            <span className="mx-1">→</span>
+                            <span className="font-mono">{pos.usdPriceUpper}</span>
+                          </TableCell>
+                          <TableCell className="text-xs text-center py-2.5 whitespace-nowrap">
+                            <Badge variant="secondary" className="text-[10px] font-medium text-muted-foreground">
+                              Closed
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-right py-2.5 text-muted-foreground">—</TableCell>
+                          <TableCell className="text-xs text-right px-4 py-2.5 text-muted-foreground">—</TableCell>
+                        </TableRow>
+                      ))}
+                    </>
+                  )}
+                </>
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-xs text-center text-muted-foreground py-6">
+                    Loading positions...
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Wallet Balance Section
+function WalletBalance() {
+  const { data, isLoading } = useQuery<WalletResponse>({
+    queryKey: ["/api/wallet"],
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 2,
+    placeholderData: (prev) => prev,
+  });
+
+  if (isLoading && !data) {
+    return (
+      <Card className="border border-border/60">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="w-3 h-3 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin" />
+            Loading wallet balances...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) return null;
+
+  const { wallet, positions, total } = data;
+
+  return (
+    <Card className="border border-border/60">
+      <CardHeader className="pb-3 pt-4 px-4">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-1.5">
+            <CircleDollarSign className="w-3.5 h-3.5 text-primary" />
+            Portfolio Overview
+          </CardTitle>
+          <Badge variant="outline" className="text-[10px] font-normal text-emerald-600 border-emerald-500/30">
+            Live
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="px-3 sm:px-4 pb-4">
+        {/* Total value hero */}
+        <div className="mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-border/60">
+          <p className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase tracking-wide">Total Value</p>
+          <p className="text-xl sm:text-2xl font-semibold tabular-nums mt-0.5 text-foreground">
+            ${total.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <div className="flex items-center gap-2 sm:gap-3 mt-1 text-[11px] sm:text-xs text-muted-foreground">
+            <span className="tabular-nums">{total.ethTotal.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })} ETH</span>
+            <span className="text-border">|</span>
+            <span className="tabular-nums">{total.idosTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} IDOS</span>
+          </div>
+        </div>
+
+        {/* Two-column breakdown */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Wallet balance */}
+          <div className="p-3 rounded-md bg-muted/30 border border-border/40">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Wallet className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-xs font-medium text-foreground">Wallet Balance</p>
+            </div>
+            <p className="text-lg font-semibold tabular-nums text-foreground">
+              ${wallet.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <div className="mt-1.5 space-y-0.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">ETH</span>
+                <span className="tabular-nums font-medium">{wallet.ethBalance.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">IDOS</span>
+                <span className="tabular-nums font-medium">{wallet.idosBalance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Positions balance */}
+          <div className="p-3 rounded-md bg-muted/30 border border-border/40">
+            <div className="flex items-center gap-1.5 mb-2">
+              <PiggyBank className="w-3.5 h-3.5 text-muted-foreground" />
+              <p className="text-xs font-medium text-foreground">In Positions</p>
+              <Badge variant="secondary" className="text-[10px] font-normal ml-auto">
+                {positions.breakdown.length} active
+              </Badge>
+            </div>
+            <p className="text-lg font-semibold tabular-nums text-foreground">
+              ${positions.usdValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <div className="mt-1.5 space-y-0.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">ETH</span>
+                <span className="tabular-nums font-medium">{positions.ethTotal.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">IDOS</span>
+                <span className="tabular-nums font-medium">{positions.idosTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Fee split pie chart data (static fallback)
+const PIE_DATA_STATIC = [
   { name: "Mar 5", value: 2384, fill: "hsl(168, 65%, 38%)" },
   { name: "Mar 8", value: 4199, fill: "hsl(168, 55%, 55%)" },
 ];
 
+const PIE_COLORS = [
+  "hsl(168, 65%, 38%)",
+  "hsl(168, 55%, 55%)",
+  "hsl(168, 45%, 65%)",
+  "hsl(168, 35%, 75%)",
+  "hsl(200, 55%, 50%)",
+  "hsl(220, 55%, 55%)",
+];
+
 export function Dashboard() {
+  const positionsQuery = useQuery<PositionsResponse>({
+    queryKey: ["/api/positions"],
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 2,
+    placeholderData: (prev) => prev,
+  });
+
+  const feesQuery = useQuery<FeesResponse>({
+    queryKey: ["/api/fees"],
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 2,
+    placeholderData: (prev) => prev,
+  });
+
+  const livePositions = positionsQuery.data?.positions;
+  const livePrices = positionsQuery.data?.prices;
+  const uncollectedFeeTotals = positionsQuery.data?.uncollectedFeeTotals;
+  const activeCount = livePositions?.filter((p) => p.isActive).length;
+  const totalPositionCount = livePositions?.length;
+
+  // Fee data from API only — no static fallback
+  const feeEvents = feesQuery.data?.events ?? [];
+  const dailyFees = feesQuery.data?.dailyFees ?? [];
+  const totalEthFees = feesQuery.data?.totals.ethFees ?? 0;
+  const totalIdosFees = feesQuery.data?.totals.idosFees ?? 0;
+  const totalUsdFees = feesQuery.data?.totals.usdFees ?? 0;
+  const pieData = dailyFees.map((d, i) => ({
+    name: d.date,
+    value: d.usdValue,
+    fill: PIE_COLORS[i % PIE_COLORS.length],
+  }));
+
   return (
     <TooltipProvider>
       <div className="min-h-screen bg-background">
         {/* Header */}
         <header className="border-b border-border/60 bg-card/50 backdrop-blur-sm sticky top-0 z-20">
-          <div className="max-w-6xl mx-auto px-4 py-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
-                {/* Uniswap-inspired logo */}
-                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z" stroke="white" strokeWidth="2" strokeLinejoin="round" fill="none" />
-                    <circle cx="12" cy="12" r="3" fill="white" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                    Uniswap V4 Fee Dashboard
-                    <Badge variant="outline" className="text-[10px] font-normal px-1.5 py-0">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3">
+            <div className="flex items-center justify-between gap-2 sm:gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                <img
+                  src="./outerlands-logo.svg"
+                  alt="Outerlands Capital"
+                  className="h-7 sm:h-8 w-auto rounded flex-shrink-0"
+                />
+                <div className="min-w-0">
+                  <h1 className="text-xs sm:text-sm font-semibold text-foreground flex items-center gap-1.5 sm:gap-2">
+                    <span className="truncate">Uniswap V4 Fee Dashboard</span>
+                    <Badge variant="outline" className="text-[10px] font-normal px-1.5 py-0 flex-shrink-0">
                       {CHAIN}
                     </Badge>
                   </h1>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-xs text-muted-foreground font-mono">
+                    <span className="text-[11px] sm:text-xs text-muted-foreground font-mono">
                       {truncateAddress(WALLET_ADDRESS)}
                     </span>
                     <CopyButton text={WALLET_ADDRESS} />
@@ -287,7 +836,7 @@ export function Dashboard() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
                 <span>Deployed by</span>
                 <Badge variant="secondary" className="font-mono text-[10px]">
                   {DEPLOYER}
@@ -297,60 +846,69 @@ export function Dashboard() {
           </div>
         </header>
 
-        <main className="max-w-6xl mx-auto px-4 py-5">
+        <main className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-5">
           {/* Pool info bar */}
-          <div className="flex items-center gap-3 mb-5 flex-wrap text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-5 flex-wrap text-[11px] sm:text-xs text-muted-foreground">
+            <div className="flex items-center gap-1">
               <span className="font-medium text-foreground">Pool:</span>
               <span>{POOL_NAME}</span>
             </div>
-            <span className="text-border">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">Fee Tier:</span>
+            <span className="text-border hidden sm:inline">|</span>
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-foreground">Fee:</span>
               <span>{FEE_TIER}</span>
             </div>
-            <span className="text-border">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">TVL:</span>
-              <span>{formatUSD(POOL_STATS.tvl)}</span>
-            </div>
-            <span className="text-border">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className="font-medium text-foreground">Txns:</span>
-              <span>{POOL_STATS.txCount.toLocaleString()}</span>
-            </div>
+            {livePrices && (
+              <>
+                <span className="text-border hidden sm:inline">|</span>
+                <div className="flex items-center gap-1">
+                  <span className="font-medium text-foreground">ETH:</span>
+                  <span>{formatUSD(livePrices.ethUsd)}</span>
+                </div>
+                <span className="text-border hidden sm:inline">|</span>
+                <div className="flex items-center gap-1">
+                  <span className="font-medium text-foreground">IDOS:</span>
+                  <span>{formatUSD(livePrices.idosUsd)}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-5">
             <KPICard
               title="Total ETH Fees"
-              value={`${formatNumber(TOTAL_ETH_FEES, 4)} ETH`}
-              subtitle={`~${formatUSD(TOTAL_USD_FEES)}`}
+              value={`${formatNumber(totalEthFees, 4)} ETH`}
+              subtitle={`~${formatUSD(totalUsdFees)}`}
               icon={Wallet}
             />
             <KPICard
-              title="Total IDOS Fees"
-              value={formatNumber(TOTAL_IDOS_FEES, 2)}
-              subtitle="IDOS tokens"
+              title="Uncollected Fees"
+              value={uncollectedFeeTotals ? `$${formatNumber(uncollectedFeeTotals.usdValue, 2)}` : "..."}
+              subtitle={uncollectedFeeTotals ? `${formatNumber(uncollectedFeeTotals.ethFees, 4)} ETH + ${formatNumber(uncollectedFeeTotals.idosFees, 0)} IDOS` : "Loading"}
               icon={TrendingUp}
             />
             <KPICard
               title="Positions"
-              value={String(POSITION_IDS.length)}
-              subtitle="Active NFTs"
+              value={activeCount !== undefined ? String(activeCount) : String(POSITION_IDS.length)}
+              subtitle={activeCount !== undefined ? `of ${totalPositionCount} active` : "NFTs"}
               icon={Layers}
             />
             <KPICard
               title="Collection Events"
-              value={String(FEE_EVENTS.length)}
-              subtitle="Over 2 days"
+              value={String(feeEvents.length)}
+              subtitle={dailyFees.length > 0 ? `Over ${dailyFees.length} day${dailyFees.length > 1 ? 's' : ''}` : ""}
               icon={Activity}
             />
           </div>
 
+          {/* Wallet Balance */}
+          <div className="mb-4 sm:mb-5">
+            <WalletBalance />
+          </div>
+
           {/* Charts row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-5">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3 mb-4 sm:mb-5">
             {/* Daily fees bar chart */}
             <Card className="border border-border/60 lg:col-span-2">
               <CardHeader className="pb-2 pt-4 px-4">
@@ -358,7 +916,7 @@ export function Dashboard() {
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={DAILY_FEES} barCategoryGap="30%">
+                  <BarChart data={dailyFees} barCategoryGap="30%">
                     <CartesianGrid
                       strokeDasharray="3 3"
                       stroke="hsl(var(--border))"
@@ -378,8 +936,8 @@ export function Dashboard() {
                     />
                     <RechartsTooltip content={<BarTooltip />} />
                     <Bar dataKey="usdValue" name="USD Value" radius={[4, 4, 0, 0]} maxBarSize={60}>
-                      {DAILY_FEES.map((_, i) => (
-                        <Cell key={i} fill={i === 0 ? "hsl(168, 65%, 38%)" : "hsl(168, 55%, 55%)"} />
+                      {dailyFees.map((_, i) => (
+                        <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -396,7 +954,7 @@ export function Dashboard() {
                 <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
                     <Pie
-                      data={PIE_DATA}
+                      data={pieData}
                       cx="50%"
                       cy="50%"
                       innerRadius={40}
@@ -405,7 +963,7 @@ export function Dashboard() {
                       dataKey="value"
                       stroke="none"
                     >
-                      {PIE_DATA.map((entry, i) => (
+                      {pieData.map((entry, i) => (
                         <Cell key={i} fill={entry.fill} />
                       ))}
                     </Pie>
@@ -421,7 +979,7 @@ export function Dashboard() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex gap-4 mt-1">
-                  {PIE_DATA.map((d) => (
+                  {pieData.map((d) => (
                     <div key={d.name} className="flex items-center gap-1.5 text-xs">
                       <span
                         className="w-2 h-2 rounded-full"
@@ -437,14 +995,17 @@ export function Dashboard() {
           </div>
 
           {/* Events table */}
-          <div className="mb-5">
-            <FeeEventsTable events={FEE_EVENTS} />
+          <div className="mb-4 sm:mb-5">
+            <FeeEventsTable events={feeEvents} />
           </div>
 
-          {/* Bottom row: Positions + Methodology */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-5">
-            <PositionsList />
+          {/* Active Positions */}
+          <div className="mb-4 sm:mb-5">
+            <ActivePositions />
+          </div>
 
+          {/* Methodology */}
+          <div className="grid grid-cols-1 gap-3 mb-5">
             {/* Methodology */}
             <Card className="border border-border/60">
               <CardHeader className="pb-3 pt-4 px-4">
@@ -528,12 +1089,12 @@ export function Dashboard() {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-border/60 py-4 mt-2">
-          <div className="max-w-6xl mx-auto px-4 flex items-center justify-between flex-wrap gap-2">
+        <footer className="border-t border-border/60 py-3 sm:py-4 mt-2">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4 flex items-center justify-between flex-wrap gap-2">
             <p className="text-[10px] text-muted-foreground">
               Data sourced from Uniswap V4 Subgraph and Arbiscan. Prices approximate at time of collection.
             </p>
-            <PerplexityAttribution />
+
           </div>
         </footer>
       </div>
